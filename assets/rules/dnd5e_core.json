@@ -1,0 +1,70 @@
+{
+  "system_id": "dnd5e_custom",
+  "system_name": "D&D 5e (Maison)",
+  "version": "1.2.0",
+  
+  "data_definitions": {
+    "item": [
+      {"id": "name", "name": "Nom", "type": "string"},
+      {"id": "weight", "name": "Poids (kg)", "type": "integer", "min": 0},
+      {"id": "qty", "name": "Qté", "type": "integer", "min": 1}
+    ],
+    "spell": [
+      {"id": "name", "name": "Sort", "type": "string"},
+      {"id": "level", "name": "Niveau", "type": "integer", "min": 0},
+      {"id": "school", "name": "École", "type": "string"}
+    ]
+  },
+
+  "stat_definitions": [
+    {"id": "name", "name": "Nom du Personnage", "type": "string"},
+    {"id": "class", "name": "Classe", "type": "string"},
+    {"id": "race", "name": "Race", "type": "string"},
+    {"id": "level", "name": "Niveau", "type": "integer", "min": 1, "max": 20},
+    {"id": "bio", "name": "Biographie & Notes", "type": "string"},
+    
+    {"id": "hp_current", "name": "PV Actuels", "type": "integer"},
+    {"id": "hp_max", "name": "PV Max", "type": "integer"},
+    
+    {"id": "str", "name": "Force", "type": "integer", "min": 1, "max": 30},
+    {"id": "dex", "name": "Dextérité", "type": "integer", "min": 1, "max": 30},
+    {"id": "con", "name": "Constitution", "type": "integer", "min": 1, "max": 30},
+    {"id": "int", "name": "Intelligence", "type": "integer", "min": 1, "max": 30},
+    {"id": "wis", "name": "Sagesse", "type": "integer", "min": 1, "max": 30},
+    {"id": "cha", "name": "Charisme", "type": "integer", "min": 1, "max": 30},
+
+    {"id": "inventory", "name": "Sac à dos", "type": "list", "data_ref": "item"},
+    {"id": "spellbook", "name": "Grimoire", "type": "list", "data_ref": "spell"}
+  ],
+
+  "layout": {
+    "tabs": ["Bio", "Stats", "Inventaire"],
+    "sections": [
+      {
+        "tab": "Bio",
+        "title": "Identité",
+        "contains": ["name", "class", "race", "level", "bio"]
+      },
+      {
+        "tab": "Stats",
+        "title": "Caractéristiques",
+        "contains": ["str", "dex", "con", "int", "wis", "cha"]
+      },
+      {
+        "tab": "Stats",
+        "title": "Combat",
+        "contains": ["hp_current", "hp_max"]
+      },
+      {
+        "tab": "Inventaire",
+        "title": "Équipement",
+        "contains": ["inventory"]
+      },
+      {
+        "tab": "Inventaire",
+        "title": "Magie",
+        "contains": ["spellbook"]
+      }
+    ]
+  }
+}

@@ -1,0 +1,35 @@
+[
+    {
+      "id": "magic_missile",
+      "name": "Projectile Magique",
+      "level": 1,
+      "school": "Évocation",
+      "casting_time": "1 action",
+      "range": "36 mètres",
+      "components": "V, S",
+      "duration": "Instantanée",
+      "description": "Vous créez trois fléchettes magiques luminescentes. Chaque fléchette atteint une créature de votre choix que vous pouvez voir et lui inflige 1d4 + 1 dégâts de force."
+    },
+    {
+      "id": "fireball",
+      "name": "Boule de Feu",
+      "level": 3,
+      "school": "Évocation",
+      "casting_time": "1 action",
+      "range": "45 mètres",
+      "components": "V, S, M",
+      "duration": "Instantanée",
+      "description": "Une explosion de flammes s'étend avec un bruit sourd... 8d6 dégâts de feu."
+    },
+    {
+      "id": "invisibility",
+      "name": "Invisibilité",
+      "level": 2,
+      "school": "Illusion",
+      "casting_time": "1 action",
+      "range": "Toucher",
+      "components": "V, S, M",
+      "duration": "Concentration, jusqu'à 1 heure",
+      "description": "Une créature que vous touchez devient invisible."
+    }
+  ]
