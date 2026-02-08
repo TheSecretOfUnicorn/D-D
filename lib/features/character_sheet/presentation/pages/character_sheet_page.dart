@@ -97,8 +97,11 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
         children: [
           _buildStatsTab(),
           _buildBioTab(),
+           InventoryTab(character: widget.character, rules: widget.rules, onSave: _saveChanges),
+           SpellbookTab(character: widget.character, rules: widget.rules, onSave: _saveChanges),
           _buildPlaceholderTab("Inventaire"),
           _buildPlaceholderTab("Livre de Sorts"),
+         
         ],
       ),
     );
@@ -238,6 +241,295 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
           Text("À connecter avec tes modules existants."),
         ],
       ),
+    );
+  }
+  
+}
+class InventoryTab extends StatefulWidget {
+  final CharacterModel character;
+  final RuleSystemModel rules; // <--- On a besoin des règles ici
+  final VoidCallback onSave;
+
+  const InventoryTab({super.key, required this.character, required this.rules, required this.onSave});
+
+  @override
+  State<InventoryTab> createState() => _InventoryTabState();
+}
+
+class _InventoryTabState extends State<InventoryTab> {
+  late List<dynamic> _items;
+
+  @override
+  void initState() {
+    super.initState();
+    _items = widget.character.getStat<List<dynamic>>('inventory', []);
+  }
+
+  void _addItem() {
+    // Variables pour stocker les choix
+    String selectedName = "";
+    String selectedDesc = "";
+    TextEditingController qtyCtrl = TextEditingController(text: "1");
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Ajouter un objet"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // --- AUTOCOMPLÉTION MAGIQUE ---
+            Autocomplete<Map<String, dynamic>>(
+              optionsBuilder: (TextEditingValue textEditingValue) {
+
+                if (textEditingValue.text == '') return const Iterable.empty();
+                // On cherche dans le compendium (items)
+                return widget.rules.allItems.where((Map<String, dynamic> option) {
+                  return option['name'].toString().toLowerCase()
+                      .contains(textEditingValue.text.toLowerCase());
+                });
+              },
+              displayStringForOption: (Map<String, dynamic> option) => option['name'],
+              onSelected: (Map<String, dynamic> selection) {
+                selectedName = selection['name'];
+                // On récupère la description du JSON s'il y en a une
+                selectedDesc = selection['description'] ?? selection['desc'] ?? "";
+              },
+              fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
+                return TextField(
+                  controller: textEditingController,
+                  focusNode: focusNode,
+                  decoration: const InputDecoration(
+                    labelText: "Nom de l'objet (Recherche...)",
+                    suffixIcon: Icon(Icons.search),
+                  ),
+                  onChanged: (val) => selectedName = val, // Si on tape un truc custom
+                );
+              },
+            ),
+            // -----------------------------
+            const SizedBox(height: 10),
+            TextField(controller: qtyCtrl, decoration: const InputDecoration(labelText: "Quantité"), keyboardType: TextInputType.number),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
+          ElevatedButton(
+            onPressed: () {
+              if (selectedName.isNotEmpty) {
+                setState(() {
+                  _items.add({
+                    'name': selectedName,
+                    'qty': int.tryParse(qtyCtrl.text) ?? 1,
+                    'desc': selectedDesc // Sauvegarde la description auto !
+                  });
+                  widget.character.setStat('inventory', _items);
+                });
+                widget.onSave();
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text("Ajouter"),
+          )
+        ],
+      ),
+    );
+  }
+
+  void _removeItem(int index) {
+    setState(() {
+      _items.removeAt(index);
+      widget.character.setStat('inventory', _items);
+    });
+    widget.onSave();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      floatingActionButton: FloatingActionButton(
+        onPressed: _addItem,
+        backgroundColor: Colors.brown,
+        child: const Icon(Icons.add),
+      ),
+      body: _items.isEmpty
+          ? const Center(child: Text("Sac à dos vide."))
+          : ListView.builder(
+              padding: const EdgeInsets.only(bottom: 80),
+              itemCount: _items.length,
+              itemBuilder: (ctx, i) {
+                final item = _items[i];
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: ExpansionTile( // ExpansionTile pour voir la description
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.brown[100],
+                      child: Text("${item['qty']}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.brown)),
+                    ),
+                    title: Text(item['name'] ?? "Objet inconnu"),
+                    children: [
+                      if (item['desc'] != null && item['desc'].toString().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Text(item['desc'], style: const TextStyle(fontStyle: FontStyle.italic)),
+                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton.icon(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            label: const Text("Jeter", style: TextStyle(color: Colors.red)),
+                            onPressed: () => _removeItem(i),
+                          )
+                        ],
+                      )
+                    ],
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+class SpellbookTab extends StatefulWidget {
+  final CharacterModel character;
+  final RuleSystemModel rules; // <--- Besoin des règles
+  final VoidCallback onSave;
+
+  const SpellbookTab({super.key, required this.character, required this.rules, required this.onSave});
+
+  @override
+  State<SpellbookTab> createState() => _SpellbookTabState();
+}
+
+class _SpellbookTabState extends State<SpellbookTab> {
+  late List<dynamic> _spells;
+
+  @override
+  void initState() {
+    super.initState();
+    _spells = widget.character.getStat<List<dynamic>>('spellsbook', []);
+  }
+
+  void _addSpell() {
+    String selectedName = "";
+    int selectedLevel = 0;
+    
+    // Contrôleur pour le niveau (au cas où on veut le changer manuellement)
+    TextEditingController levelCtrl = TextEditingController(text: "0");
+    // Contrôleur pour le nom (pour le mettre à jour quand on clique sur une suggestion)
+    TextEditingController nameDisplayCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Apprendre un sort"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // --- AUTOCOMPLÉTION SORTS ---
+            Autocomplete<Map<String, dynamic>>(
+              optionsBuilder: (TextEditingValue textEditingValue) {
+                if (textEditingValue.text == '') return const Iterable.empty();
+                return widget.rules.allSpells.where((Map<String, dynamic> option) {
+                  return option['name'].toString().toLowerCase()
+                      .contains(textEditingValue.text.toLowerCase());
+                });
+              },
+              displayStringForOption: (Map<String, dynamic> option) => option['name'],
+              onSelected: (Map<String, dynamic> selection) {
+                selectedName = selection['name'];
+                // AUTO-REMPLISSAGE DU NIVEAU !
+                selectedLevel = selection['level'] ?? 0;
+                levelCtrl.text = selectedLevel.toString();
+              },
+              fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
+                // Petite astuce pour garder le controlleur synchro
+                nameDisplayCtrl = textEditingController;
+                return TextField(
+                  controller: textEditingController,
+                  focusNode: focusNode,
+                  decoration: const InputDecoration(
+                    labelText: "Nom du sort",
+                    suffixIcon: Icon(Icons.auto_fix_high),
+                  ),
+                  onChanged: (val) => selectedName = val,
+                );
+              },
+            ),
+            // ---------------------------
+            const SizedBox(height: 10),
+            TextField(
+              controller: levelCtrl, 
+              decoration: const InputDecoration(labelText: "Niveau (0 = Cantrip)"), 
+              keyboardType: TextInputType.number
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
+          ElevatedButton(
+            onPressed: () {
+              if (selectedName.isNotEmpty) {
+                setState(() {
+                  _spells.add({
+                    'name': selectedName,
+                    // On prend la valeur du champ niveau (qui a peut-être été auto-rempli)
+                    'level': int.tryParse(levelCtrl.text) ?? 0,
+                    'prepared': false
+                  });
+                  widget.character.setStat('spells', _spells);
+                });
+                widget.onSave();
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text("Ajouter"),
+          )
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      floatingActionButton: FloatingActionButton(
+        onPressed: _addSpell,
+        backgroundColor: Colors.purple,
+        child: const Icon(Icons.auto_fix_high),
+      ),
+      body: _spells.isEmpty
+          ? const Center(child: Text("Grimoire vide."))
+          : ListView.builder(
+              padding: const EdgeInsets.only(bottom: 80),
+              itemCount: _spells.length,
+              itemBuilder: (ctx, i) {
+                final spell = _spells[i];
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.purple[100],
+                      child: Text("${spell['level']}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
+                    ),
+                    title: Text(spell['name'] ?? "Sort inconnu"),
+                    subtitle: Text(spell['level'] == 0 ? "Tour de magie" : "Niveau ${spell['level']}"),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.grey),
+                      onPressed: () {
+                        setState(() {
+                          _spells.removeAt(i);
+                          widget.character.setStat('spells', _spells);
+                        });
+                        widget.onSave();
+                      },
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }

@@ -52,14 +52,39 @@ class RuleSystemModel {
         .map((e) => e.id)
         .toList();
   }
+// --- 🔥 PONT N°3 : ACCÈS COMPENDIUM (SYNCHRONISÉ AVEC TON JSON) 🔥 ---
 
+  // On cherche 'spellbook' car c'est le nom dans ton JSON
+  List<Map<String, dynamic>> get allSpells {
+    if (library.containsKey('spellbook')) {
+      return library['spellbook']!;
+    }
+    return [];
+  }
+
+  // On cherche 'inventory' car c'est le nom dans ton JSON
+  List<Map<String, dynamic>> get allItems {
+    if (library.containsKey('inventory')) {
+      return library['inventory']!;
+    }
+    return [];
+  }
   factory RuleSystemModel.fromJson(Map<String, dynamic> json) {
     // ... (Le parsing reste identique à avant) ...
     Map<String, List<Map<String, dynamic>>> lib = {};
-    if (json['library'] != null) {
-      (json['library'] as Map<String, dynamic>).forEach((key, value) {
+    
+    if (json['library'] != null && json['library'] is Map) {
+      final libraryMap = json['library'] as Map<String, dynamic>;
+      
+      libraryMap.forEach((key, value) {
         if (value is List) {
-           lib[key] = List<Map<String, dynamic>>.from(value.map((e) => Map<String, dynamic>.from(e)));
+          // On force la conversion en liste de Map<String, dynamic>
+          lib[key] = value.map((e) {
+            if (e is Map) {
+              return Map<String, dynamic>.from(e);
+            }
+            return <String, dynamic>{}; // Ignore les éléments mal formés
+          }).toList();
         }
       });
     }
