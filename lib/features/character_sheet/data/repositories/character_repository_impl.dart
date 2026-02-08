@@ -1,58 +1,72 @@
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../data/models/character_model.dart';
+import '../models/character_model.dart';
 
 class CharacterRepositoryImpl {
-  static const String _indexKey = 'character_index_list'; // Liste des IDs
-  static const String _prefix = 'char_'; // Préfixe pour chaque fichier
+  // ⚠️ Ton URL Serveur (sans slash à la fin)
+  final String baseUrl = "http://sc2tphk4284.universe.wf/api_jdr";
 
-  /// Sauvegarde un personnage et met à jour l'index
-  Future<void> saveCharacter(CharacterModel character) async {
+  Future<Map<String, String>> _getHeaders() async {
     final prefs = await SharedPreferences.getInstance();
-    
-    // 1. Sauvegarder les données du perso
-    final jsonString = jsonEncode(character.toJson());
-    await prefs.setString('$_prefix${character.id}', jsonString);
-
-    // 2. Mettre à jour la liste des personnages existants
-    final List<String> indexList = prefs.getStringList(_indexKey) ?? [];
-    if (!indexList.contains(character.id)) {
-      indexList.add(character.id);
-      await prefs.setStringList(_indexKey, indexList);
-    }
+    final userId = prefs.getInt('user_id');
+    return {
+      "Content-Type": "application/json",
+      "x-user-id": userId.toString(),
+    };
   }
 
-  /// Récupère TOUS les personnages (pour le dashboard)
+  // Charger tous les personnages du Cloud
   Future<List<CharacterModel>> getAllCharacters() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> indexList = prefs.getStringList(_indexKey) ?? [];
-    
-    List<CharacterModel> allChars = [];
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(Uri.parse('$baseUrl/characters'), headers: headers);
 
-    for (String id in indexList) {
-      final String? jsonString = prefs.getString('$_prefix$id');
-      if (jsonString != null) {
-        try {
-          final jsonMap = jsonDecode(jsonString);
-          allChars.add(CharacterModel.fromJson(jsonMap));
-        } catch (e) {
-          print("Fichier corrompu pour l'ID $id : $e");
-        }
+      if (response.statusCode == 200) {
+        final List<dynamic> jsonList = jsonDecode(response.body);
+        return jsonList.map((json) => CharacterModel.fromMap(json)).toList();
+      } else {
+        // Si erreur ou liste vide, on renvoie une liste vide pour ne pas crasher
+        return [];
       }
+    } catch (e) {
+      print("Erreur Cloud: $e");
+      return [];
     }
-    return allChars;
   }
 
-  /// Supprime un personnage
+  // Sauvegarder (Créer ou Update)
+  Future<void> saveCharacter(CharacterModel character) async {
+    try {
+      final headers = await _getHeaders();
+      
+      // On convertit le perso en JSON
+      final body = jsonEncode(character.toMap());
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/characters'),
+        headers: headers,
+        body: body,
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception("Erreur sauvegarde: ${response.body}");
+      }
+    } catch (e) {
+      throw Exception("Impossible de sauvegarder: $e");
+    }
+  }
+
+  // Supprimer
   Future<void> deleteCharacter(String id) async {
-    final prefs = await SharedPreferences.getInstance();
-    
-    // 1. Supprimer le fichier
-    await prefs.remove('$_prefix$id');
-    
-    // 2. Retirer de l'index
-    final List<String> indexList = prefs.getStringList(_indexKey) ?? [];
-    indexList.remove(id);
-    await prefs.setStringList(_indexKey, indexList);
+    try {
+      final headers = await _getHeaders();
+      await http.delete(
+        Uri.parse('$baseUrl/characters/$id'),
+        headers: headers,
+      );
+    } catch (e) {
+      throw Exception("Erreur suppression: $e");
+    }
   }
 }
