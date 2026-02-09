@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../data/models/character_model.dart';
 import '../../data/repositories/character_repository_impl.dart';
 import '../../../rules_engine/data/models/rule_system_model.dart';
+import '../../../compendium/data/repositories/compendium_repository.dart';
 
 class CharacterSheetPage extends StatefulWidget {
   final CharacterModel character;
@@ -21,6 +22,14 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
   late TabController _tabController;
   final CharacterRepositoryImpl _repo = CharacterRepositoryImpl();
   
+  // --- Le Repo Compendium (Connecté au serveur Node.js) ---
+  final CompendiumRepository _compendiumRepo = CompendiumRepository();
+  
+  // Listes dynamiques chargées depuis le serveur
+  List<Map<String, dynamic>> _onlineItems = [];
+  List<Map<String, dynamic>> _onlineSpells = [];
+  bool _isLoadingCompendium = true;
+
   late TextEditingController _nameController;
   late TextEditingController _bioController;
   late TextEditingController _raceController;
@@ -28,12 +37,27 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
   @override
   void initState() {
     super.initState();
-    // On ajoute 2 onglets : Inventaire et Sorts
     _tabController = TabController(length: 4, vsync: this);
     
     _nameController = TextEditingController(text: widget.character.name);
     _bioController = TextEditingController(text: widget.character.getStat<String>('bio', ''));
     _raceController = TextEditingController(text: widget.character.getStat<String>('race', ''));
+
+    // --- Chargement des données Cloud ---
+    _loadCompendium();
+  }
+
+  Future<void> _loadCompendium() async {
+    // On récupère tout le compendium (items et sorts) depuis l'API
+    final data = await _compendiumRepo.fetchFullCompendium(null);
+    
+    if (mounted) {
+      setState(() {
+        _onlineItems = data['items']!;
+        _onlineSpells = data['spells']!;
+        _isLoadingCompendium = false;
+      });
+    }
   }
 
   @override
@@ -83,7 +107,7 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
         ),
         bottom: TabBar(
           controller: _tabController,
-          isScrollable: true, // Permet de scroller si les onglets sont nombreux
+          isScrollable: true,
           tabs: const [
             Tab(icon: Icon(Icons.bar_chart), text: "Stats"),
             Tab(icon: Icon(Icons.person), text: "Bio"),
@@ -97,11 +121,22 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
         children: [
           _buildStatsTab(),
           _buildBioTab(),
-           InventoryTab(character: widget.character, rules: widget.rules, onSave: _saveChanges),
-           SpellbookTab(character: widget.character, rules: widget.rules, onSave: _saveChanges),
-          _buildPlaceholderTab("Inventaire"),
-          _buildPlaceholderTab("Livre de Sorts"),
-         
+          
+          // --- Onglet Inventaire Connecté ---
+          InventoryTab(
+            character: widget.character, 
+            availableItems: _onlineItems, // Passe la liste chargée du serveur
+            isLoading: _isLoadingCompendium,
+            onSave: _saveChanges
+          ),
+          
+          // --- Onglet Sorts Connecté ---
+          SpellbookTab(
+            character: widget.character, 
+            availableSpells: _onlineSpells, // Passe la liste chargée du serveur
+            isLoading: _isLoadingCompendium,
+            onSave: _saveChanges
+          ),
         ],
       ),
     );
@@ -124,8 +159,6 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
           final int modifier = ((currentValue - 10) / 2).floor();
           final String modSign = modifier >= 0 ? "+" : "";
 
-          // --- CORRECTION DU NOM ---
-          // On utilise getStatName pour avoir "Force" au lieu de "str"
           final String displayName = widget.rules.getStatName(statId);
 
           return Card(
@@ -228,29 +261,22 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
       ),
     );
   }
-
-  // Placeholder pour Inventaire et Sorts (à remplacer par tes vraies pages)
-  Widget _buildPlaceholderTab(String title) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.construction, size: 64, color: Colors.grey),
-          SizedBox(height: 16),
-          Text("Module $title", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          Text("À connecter avec tes modules existants."),
-        ],
-      ),
-    );
-  }
-  
 }
+
+// --- WIDGET INVENTAIRE OPTIMISÉ ---
 class InventoryTab extends StatefulWidget {
   final CharacterModel character;
-  final RuleSystemModel rules; // <--- On a besoin des règles ici
+  final List<Map<String, dynamic>> availableItems; // Reçoit les données du serveur
+  final bool isLoading;
   final VoidCallback onSave;
 
-  const InventoryTab({super.key, required this.character, required this.rules, required this.onSave});
+  const InventoryTab({
+    super.key, 
+    required this.character, 
+    required this.availableItems, 
+    required this.isLoading,
+    required this.onSave
+  });
 
   @override
   State<InventoryTab> createState() => _InventoryTabState();
@@ -266,7 +292,11 @@ class _InventoryTabState extends State<InventoryTab> {
   }
 
   void _addItem() {
-    // Variables pour stocker les choix
+    if (widget.isLoading) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chargement du compendium...")));
+      return;
+    }
+
     String selectedName = "";
     String selectedDesc = "";
     TextEditingController qtyCtrl = TextEditingController(text: "1");
@@ -278,13 +308,11 @@ class _InventoryTabState extends State<InventoryTab> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // --- AUTOCOMPLÉTION MAGIQUE ---
             Autocomplete<Map<String, dynamic>>(
               optionsBuilder: (TextEditingValue textEditingValue) {
-
                 if (textEditingValue.text == '') return const Iterable.empty();
-                // On cherche dans le compendium (items)
-                return widget.rules.allItems.where((Map<String, dynamic> option) {
+                // Filtre la liste reçue du serveur
+                return widget.availableItems.where((Map<String, dynamic> option) {
                   return option['name'].toString().toLowerCase()
                       .contains(textEditingValue.text.toLowerCase());
                 });
@@ -292,8 +320,7 @@ class _InventoryTabState extends State<InventoryTab> {
               displayStringForOption: (Map<String, dynamic> option) => option['name'],
               onSelected: (Map<String, dynamic> selection) {
                 selectedName = selection['name'];
-                // On récupère la description du JSON s'il y en a une
-                selectedDesc = selection['description'] ?? selection['desc'] ?? "";
+                selectedDesc = selection['desc'] ?? "";
               },
               fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
                 return TextField(
@@ -303,11 +330,10 @@ class _InventoryTabState extends State<InventoryTab> {
                     labelText: "Nom de l'objet (Recherche...)",
                     suffixIcon: Icon(Icons.search),
                   ),
-                  onChanged: (val) => selectedName = val, // Si on tape un truc custom
+                  onChanged: (val) => selectedName = val,
                 );
               },
             ),
-            // -----------------------------
             const SizedBox(height: 10),
             TextField(controller: qtyCtrl, decoration: const InputDecoration(labelText: "Quantité"), keyboardType: TextInputType.number),
           ],
@@ -321,7 +347,7 @@ class _InventoryTabState extends State<InventoryTab> {
                   _items.add({
                     'name': selectedName,
                     'qty': int.tryParse(qtyCtrl.text) ?? 1,
-                    'desc': selectedDesc // Sauvegarde la description auto !
+                    'desc': selectedDesc
                   });
                   widget.character.setStat('inventory', _items);
                 });
@@ -361,7 +387,7 @@ class _InventoryTabState extends State<InventoryTab> {
                 final item = _items[i];
                 return Card(
                   margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: ExpansionTile( // ExpansionTile pour voir la description
+                  child: ExpansionTile(
                     leading: CircleAvatar(
                       backgroundColor: Colors.brown[100],
                       child: Text("${item['qty']}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.brown)),
@@ -392,12 +418,20 @@ class _InventoryTabState extends State<InventoryTab> {
   }
 }
 
+// --- WIDGET GRIMOIRE OPTIMISÉ ---
 class SpellbookTab extends StatefulWidget {
   final CharacterModel character;
-  final RuleSystemModel rules; // <--- Besoin des règles
+  final List<Map<String, dynamic>> availableSpells; // Reçoit les données du serveur
+  final bool isLoading;
   final VoidCallback onSave;
 
-  const SpellbookTab({super.key, required this.character, required this.rules, required this.onSave});
+  const SpellbookTab({
+    super.key, 
+    required this.character, 
+    required this.availableSpells, 
+    required this.isLoading, 
+    required this.onSave
+  });
 
   @override
   State<SpellbookTab> createState() => _SpellbookTabState();
@@ -409,16 +443,19 @@ class _SpellbookTabState extends State<SpellbookTab> {
   @override
   void initState() {
     super.initState();
-    _spells = widget.character.getStat<List<dynamic>>('spellsbook', []);
+    // 'spells' est la clé de sauvegarde dans le CharacterModel
+    _spells = widget.character.getStat<List<dynamic>>('spells', []);
   }
 
   void _addSpell() {
+    if (widget.isLoading) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chargement du compendium...")));
+      return;
+    }
+
     String selectedName = "";
     int selectedLevel = 0;
-    
-    // Contrôleur pour le niveau (au cas où on veut le changer manuellement)
     TextEditingController levelCtrl = TextEditingController(text: "0");
-    // Contrôleur pour le nom (pour le mettre à jour quand on clique sur une suggestion)
     TextEditingController nameDisplayCtrl = TextEditingController();
 
     showDialog(
@@ -428,11 +465,11 @@ class _SpellbookTabState extends State<SpellbookTab> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // --- AUTOCOMPLÉTION SORTS ---
             Autocomplete<Map<String, dynamic>>(
               optionsBuilder: (TextEditingValue textEditingValue) {
                 if (textEditingValue.text == '') return const Iterable.empty();
-                return widget.rules.allSpells.where((Map<String, dynamic> option) {
+                // Filtre la liste reçue du serveur
+                return widget.availableSpells.where((Map<String, dynamic> option) {
                   return option['name'].toString().toLowerCase()
                       .contains(textEditingValue.text.toLowerCase());
                 });
@@ -440,12 +477,10 @@ class _SpellbookTabState extends State<SpellbookTab> {
               displayStringForOption: (Map<String, dynamic> option) => option['name'],
               onSelected: (Map<String, dynamic> selection) {
                 selectedName = selection['name'];
-                // AUTO-REMPLISSAGE DU NIVEAU !
                 selectedLevel = selection['level'] ?? 0;
                 levelCtrl.text = selectedLevel.toString();
               },
               fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
-                // Petite astuce pour garder le controlleur synchro
                 nameDisplayCtrl = textEditingController;
                 return TextField(
                   controller: textEditingController,
@@ -458,7 +493,6 @@ class _SpellbookTabState extends State<SpellbookTab> {
                 );
               },
             ),
-            // ---------------------------
             const SizedBox(height: 10),
             TextField(
               controller: levelCtrl, 
@@ -475,7 +509,6 @@ class _SpellbookTabState extends State<SpellbookTab> {
                 setState(() {
                   _spells.add({
                     'name': selectedName,
-                    // On prend la valeur du champ niveau (qui a peut-être été auto-rempli)
                     'level': int.tryParse(levelCtrl.text) ?? 0,
                     'prepared': false
                   });

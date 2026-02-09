@@ -180,8 +180,9 @@ class _DynamicListWidgetState extends State<DynamicListWidget> {
               
               // Détermination du titre
               String title = "Objet";
-              if (item.containsKey('name')) title = item['name'];
-              else if (widget.dataDefs.isNotEmpty) title = item[widget.dataDefs.first.id]?.toString() ?? "Objet";
+              if (item.containsKey('name')) {
+                title = item['name'];
+              } else if (widget.dataDefs.isNotEmpty) title = item[widget.dataDefs.first.id]?.toString() ?? "Objet";
 
               // Détermination des détails (Sous-titre)
               String details = item.entries
