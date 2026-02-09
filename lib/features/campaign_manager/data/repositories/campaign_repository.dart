@@ -1,176 +1,203 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/campaign_model.dart'; // Assure-toi que ce modèle existe
+import '../models/campaign_model.dart';
 
 class CampaignRepository {
-  // ⚠️ Mets ici ton URL exacte (sans slash à la fin)
-  final String baseUrl = "http://sc2tphk4284.universe.wf/api_jdr";
+  // ⚠️ ADRESSE DU SERVEUR :
+  // Utilisez "http://10.0.2.2:3000" pour l'émulateur Android.
+  // Utilisez "http://localhost:3000" pour Web ou iOS Simulateur.
+  // Utilisez l'IP de votre machine (ex: "http://192.168.1.15:3000") pour un vrai téléphone.
+  final String baseUrl = "http://sc2tphk4284.universe.wf/api_jdr"; // Attention au préfixe /api_jdr si défini dans app.js
 
-  Future<Map<String, String>> _getHeaders() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getInt('user_id'); // On récupère l'ID stocké au Login
-    return {
-      "Content-Type": "application/json",
-      "x-user-id": userId.toString(), // On l'envoie au serveur pour s'identifier
-    };
-  }
+  // --- 1. GESTION DES CAMPAGNES ---
 
+  /// Récupère la liste des campagnes de l'utilisateur
   Future<List<CampaignModel>> getAllCampaigns() async {
     try {
-      final headers = await _getHeaders();
-      final response = await http.get(Uri.parse('$baseUrl/campaigns'), headers: headers);
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.get('user_id')?.toString(); // Conversion sécurisée
+
+      if (userId == null) return [];
+
+      final response = await http.get(
+        Uri.parse("$baseUrl/campaigns"),
+        headers: {'x-user-id': userId},
+      );
 
       if (response.statusCode == 200) {
-        final List<dynamic> jsonList = jsonDecode(response.body);
-        return jsonList.map((json) => CampaignModel.fromJson(json)).toList();
-      } else {
-        throw Exception("Erreur serveur: ${response.statusCode}");
+        final List<dynamic> data = jsonDecode(response.body);
+        return data.map((json) => CampaignModel.fromJson(json)).toList();
       }
+      return [];
     } catch (e) {
-      throw Exception("Erreur connexion: $e");
+      print("Erreur getAllCampaigns: $e");
+      return [];
     }
   }
 
-  Future<void> createCampaign(String title) async {
+  /// Crée une nouvelle campagne (GM)
+  Future<CampaignModel?> createCampaign(String title) async {
     try {
-      final headers = await _getHeaders();
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.get('user_id')?.toString();
+
+      if (userId == null) return null;
+
       final response = await http.post(
-        Uri.parse('$baseUrl/campaigns'),
-        headers: headers,
+        Uri.parse("$baseUrl/campaigns"),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': userId,
+        },
         body: jsonEncode({"title": title}),
       );
 
-      if (response.statusCode != 200) {
-        throw Exception("Erreur création: ${response.body}");
+      if (response.statusCode == 200) {
+        return CampaignModel.fromJson(jsonDecode(response.body));
       }
+      return null;
     } catch (e) {
-      throw Exception("Erreur connexion: $e");
+      print("Erreur createCampaign: $e");
+      throw Exception("Impossible de créer la campagne");
     }
   }
 
-  // ... tes autres méthodes (getAllCampaigns, createCampaign) ...
-
-  Future<void> joinCampaign(String code) async {
+  /// Rejoint une campagne existante via un code
+  Future<CampaignModel?> joinCampaign(String code) async {
     try {
-      final headers = await _getHeaders();
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.get('user_id')?.toString();
+
+      if (userId == null) return null;
+
       final response = await http.post(
-        Uri.parse('$baseUrl/campaigns/join'),
-        headers: headers,
+        Uri.parse("$baseUrl/campaigns/join"),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': userId,
+        },
         body: jsonEncode({"code": code}),
       );
 
       if (response.statusCode == 200) {
-        return; // Succès
-      } else if (response.statusCode == 404) {
-        throw Exception("Code invalide : Campagne introuvable.");
-      } else if (response.statusCode == 409) {
-        throw Exception("Vous êtes déjà membre de cette campagne.");
+        final data = jsonDecode(response.body);
+        // L'API renvoie souvent { success: true, campaign: {...} }
+        return CampaignModel.fromJson(data['campaign']);
       } else {
-        throw Exception("Erreur serveur : ${response.body}");
+        final error = jsonDecode(response.body)['error'] ?? "Erreur inconnue";
+        throw Exception(error);
       }
     } catch (e) {
-      throw Exception("Impossible de rejoindre : $e");
+      print("Erreur joinCampaign: $e");
+      rethrow;
     }
   }
 
-// Récupérer les membres
-  Future<List<Map<String, dynamic>>> getCampaignMembers(int campaignId) async {
-    try {
-      final headers = await _getHeaders();
-      final response = await http.get(
-        Uri.parse('$baseUrl/campaigns/$campaignId/members'),
-        headers: headers,
-      );
-
-      if (response.statusCode == 200) {
-        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
-      } else {
-        throw Exception("Erreur serveur: ${response.statusCode}");
-      }
-    } catch (e) {
-      throw Exception("Erreur membres: $e");
-    }
-  }
-
-// Récupérer le chat
-  Future<List<Map<String, dynamic>>> getCampaignLogs(int campaignId) async {
-    try {
-      final headers = await _getHeaders();
-      final response = await http.get(Uri.parse('$baseUrl/campaigns/$campaignId/logs'), headers: headers);
-
-      if (response.statusCode == 200) {
-        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
-      } else {
-        throw Exception("Erreur logs: ${response.statusCode}");
-      }
-    } catch (e) {
-      throw Exception("Erreur logs: $e");
-    }
-  }
-
-  // Envoyer un message/dé
-  Future<void> sendLog(int campaignId, String content, String type, int? value) async {
-    final headers = await _getHeaders();
-    await http.post(
-      Uri.parse('$baseUrl/campaigns/$campaignId/logs'),
-      headers: headers,
-      body: jsonEncode({
-        "content": content,
-        "type": type,
-        "result_value": value
-      }),
-    );
-  }
-
-// Mettre à jour les options (MJ)
-  Future<void> updateSettings(int campaignId, bool allowDice) async {
-    final headers = await _getHeaders();
-    await http.patch(
-      Uri.parse('$baseUrl/campaigns/$campaignId/settings'),
-      headers: headers,
-      body: jsonEncode({"allow_dice": allowDice}),
-    );
-  }
-
-Future<bool> deleteCampaign(int campaignId) async {
+  /// Supprime une campagne (GM Uniquement)
+  Future<bool> deleteCampaign(int campaignId) async {
     final url = "$baseUrl/campaigns/$campaignId";
     
     try {
       final prefs = await SharedPreferences.getInstance();
       
-      // 👇 CORRECTION ICI 👇
-      // On utilise .get() pour récupérer l'ID qu'il soit String ou Int
-      // Puis on force le .toString() pour être sûr d'avoir du texte pour le Header
+      // 👇 CORRECTION CRITIQUE : .get() + .toString() pour éviter l'erreur de type
       final userId = prefs.get('user_id')?.toString();
 
-      if (userId == null) {
-        print("Erreur: Pas d'utilisateur connecté");
-        return false; 
-      }
+      if (userId == null) return false;
 
       final response = await http.delete(
         Uri.parse(url),
         headers: {
           'Content-Type': 'application/json',
-          'x-user-id': userId, // Maintenant c'est bien une String ("23")
+          'x-user-id': userId,
         },
       );
 
-
-
-print("🗑️ DELETE STATUS: ${response.statusCode}");
-      print("🗑️ DELETE BODY: ${response.body}");
-
+      print("🗑️ DELETE STATUS: ${response.statusCode}"); // Debug
 
       return response.statusCode == 200;
     } catch (e) {
-      print("Erreur delete campaign: $e");
+      print("Erreur deleteCampaign: $e");
       return false;
     }
   }
 
+  // --- 2. GESTION DU JEU (LOGS & DÉS) ---
 
+  /// Envoie un message ou un résultat de dé
+  Future<bool> sendLog(int campaignId, String content, {String type = 'MSG', int resultValue = 0}) async {
+    final url = "$baseUrl/campaigns/$campaignId/logs";
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.get('user_id')?.toString();
 
+      if (userId == null) return false;
 
+      await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': userId
+        },
+        body: jsonEncode({
+          "content": content,
+          "type": type,
+          "result_value": resultValue
+        }),
+      );
+      return true;
+    } catch (e) {
+      print("Erreur sendLog: $e");
+      return false;
+    }
+  }
+
+  /// Récupère l'historique du chat et des dés
+  Future<List<Map<String, dynamic>>> getLogs(int campaignId) async {
+    final url = "$baseUrl/campaigns/$campaignId/logs";
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.get('user_id')?.toString();
+
+      if (userId == null) return [];
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {'x-user-id': userId},
+      );
+
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+      }
+      return [];
+    } catch (e) {
+      print("Erreur getLogs: $e");
+      return [];
+    }
+  }
+
+  /// Met à jour les paramètres de la campagne (ex: Allow Dice)
+  Future<bool> updateSettings(int campaignId, bool allowDice) async {
+    final url = "$baseUrl/campaigns/$campaignId/settings";
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.get('user_id')?.toString();
+
+      if (userId == null) return false;
+
+      final response = await http.patch(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': userId
+        },
+        body: jsonEncode({"allow_dice": allowDice}),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      print("Erreur updateSettings: $e");
+      return false;
+    }
+  }
 }

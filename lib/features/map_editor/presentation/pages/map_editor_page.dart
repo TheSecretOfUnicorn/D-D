@@ -1,26 +1,6 @@
 import 'package:flutter/material.dart';
-
-// ================= DEFINITIONS TEMPORAIRES =================
-// Ces modèles seront plus tard déplacés dans le dossier 'domain'
-// et probablement générés avec freezed/json_serializable.
-class MapConfig {
-  final int widthInCells;
-  final int heightInCells;
-  final double cellSize;
-  final Color backgroundColor;
-
-  const MapConfig({
-    required this.widthInCells,
-    required this.heightInCells,
-    required this.cellSize,
-    required this.backgroundColor,
-  });
-
-  // Taille totale en pixels
-  double get totalWidth => widthInCells * cellSize;
-  double get totalHeight => heightInCells * cellSize;
-}
-// ============================================================
+import '../painters/grid_painter.dart';
+import '../../domain/models/map_config_model.dart';
 
 
 class MapEditorPage extends StatefulWidget {
@@ -36,7 +16,8 @@ class _MapEditorPageState extends State<MapEditorPage> {
     widthInCells: 20,
     heightInCells: 15,
     cellSize: 64.0,
-    backgroundColor: Color(0xFF212121), // Gris foncé
+    backgroundColor: Color(0xFF202020), // Un gris très sombre pour le sol par défaut
+    gridColor: Color(0x26FFFFFF),       // Blanc très subtil (~15%)
   );
 
   // TransformationController permet de manipuler le zoom/pan par code si besoin
@@ -132,11 +113,11 @@ class MapCanvasWidget extends StatelessWidget {
           ),
 
           // =========== LAYER 2 : GRILLE TECHNIQUE ===========
-          // IgnorePointer car la grille est visuelle, on doit pouvoir cliquer "à travers"
           IgnorePointer(
             child: CustomPaint(
               size: Size(mapConfig.totalWidth, mapConfig.totalHeight),
-              painter: GridPainterStub(config: mapConfig),
+              // ON UTILISE MAINTENANT LE VRAI PAINTER :
+              painter: GridPainter(config: mapConfig),
             ),
           ),
 
