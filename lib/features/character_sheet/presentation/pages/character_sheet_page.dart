@@ -3,6 +3,10 @@ import '../../data/models/character_model.dart';
 import '../../data/repositories/character_repository_impl.dart';
 import '../../../rules_engine/data/models/rule_system_model.dart';
 import '../../../compendium/data/repositories/compendium_repository.dart';
+import '../../../compendium/presentation/pages/compendium_editor_page.dart';
+import 'dart:async';
+
+
 
 class CharacterSheetPage extends StatefulWidget {
   final CharacterModel character;
@@ -21,11 +25,10 @@ class CharacterSheetPage extends StatefulWidget {
 class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final CharacterRepositoryImpl _repo = CharacterRepositoryImpl();
-  
-  // --- Le Repo Compendium (Connecté au serveur Node.js) ---
   final CompendiumRepository _compendiumRepo = CompendiumRepository();
   
-  // Listes dynamiques chargées depuis le serveur
+  Timer? _saveDebounce;
+
   List<Map<String, dynamic>> _onlineItems = [];
   List<Map<String, dynamic>> _onlineSpells = [];
   bool _isLoadingCompendium = true;
@@ -37,19 +40,23 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
   @override
   void initState() {
     super.initState();
+    // 4 onglets : Stats, Bio, Inventaire, Sorts, Bibliothèque
     _tabController = TabController(length: 4, vsync: this);
     
     _nameController = TextEditingController(text: widget.character.name);
     _bioController = TextEditingController(text: widget.character.getStat<String>('bio', ''));
     _raceController = TextEditingController(text: widget.character.getStat<String>('race', ''));
 
-    // --- Chargement des données Cloud ---
     _loadCompendium();
   }
 
   Future<void> _loadCompendium() async {
-    // On récupère tout le compendium (items et sorts) depuis l'API
-    final data = await _compendiumRepo.fetchFullCompendium(null);
+    if (!mounted) return;
+    setState(() => _isLoadingCompendium = true);
+
+    // Récupération avec l'ID de campagne s'il existe
+    final campaignId = widget.character.getStat<String?>('campaign_id', null);
+    final data = await _compendiumRepo.fetchFullCompendium(campaignId);
     
     if (mounted) {
       setState(() {
@@ -66,6 +73,7 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
     _nameController.dispose();
     _bioController.dispose();
     _raceController.dispose();
+    _saveDebounce?.cancel(); // Important : on tue le timer si on quitte la page
     super.dispose();
   }
 
@@ -92,7 +100,8 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
     setState(() {
       widget.character.setStat(key, value);
     });
-    _saveChanges();
+    if (_saveDebounce?.isActive ?? false) _saveDebounce!.cancel();
+    _saveDebounce = Timer(const Duration(milliseconds: 1000), _saveChanges);
   }
 
   @override
@@ -105,6 +114,24 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
           decoration: const InputDecoration(border: InputBorder.none, hintText: "Nom du personnage"),
           onSubmitted: (_) => _saveChanges(),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.library_add),
+            tooltip: "Créer un objet/sort (MJ)",
+            onPressed: () async {
+              final result = await Navigator.push(
+                context, 
+                MaterialPageRoute(builder: (_) => const CompendiumEditorPage())
+              );
+              
+              if (result == true) {
+                // Petit délai pour laisser la DB respirer
+                await Future.delayed(const Duration(milliseconds: 300));
+                _loadCompendium();
+              }
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
@@ -113,6 +140,7 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
             Tab(icon: Icon(Icons.person), text: "Bio"),
             Tab(icon: Icon(Icons.backpack), text: "Inventaire"),
             Tab(icon: Icon(Icons.auto_fix_high), text: "Sorts"),
+        
           ],
         ),
       ),
@@ -122,21 +150,24 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
           _buildStatsTab(),
           _buildBioTab(),
           
-          // --- Onglet Inventaire Connecté ---
+          // Onglet Inventaire
           InventoryTab(
+            key: ValueKey(_onlineItems.length), // Force le refresh
             character: widget.character, 
-            availableItems: _onlineItems, // Passe la liste chargée du serveur
+            availableItems: _onlineItems,
             isLoading: _isLoadingCompendium,
             onSave: _saveChanges
           ),
           
-          // --- Onglet Sorts Connecté ---
+          // Onglet Sorts
           SpellbookTab(
+            key: ValueKey(_onlineSpells.length), // Force le refresh
             character: widget.character, 
-            availableSpells: _onlineSpells, // Passe la liste chargée du serveur
+            availableSpells: _onlineSpells,
             isLoading: _isLoadingCompendium,
             onSave: _saveChanges
           ),
+
         ],
       ),
     );
@@ -144,11 +175,6 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
 
   Widget _buildStatsTab() {
     final List<String> statsList = widget.rules.stats; 
-
-    if (statsList.isEmpty) {
-      return const Center(child: Text("Aucune statistique définie."));
-    }
-
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -158,7 +184,6 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
           final int currentValue = widget.character.getStat<int>(statId, 10);
           final int modifier = ((currentValue - 10) / 2).floor();
           final String modSign = modifier >= 0 ? "+" : "";
-
           final String displayName = widget.rules.getStatName(statId);
 
           return Card(
@@ -169,25 +194,18 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.remove_circle_outline),
-                    onPressed: () => _updateStat(statId, currentValue - 1),
-                  ),
+                  IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => _updateStat(statId, currentValue - 1)),
                   Container(
                     width: 40,
                     alignment: Alignment.center,
                     child: Text("$currentValue", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle_outline),
-                    onPressed: () => _updateStat(statId, currentValue + 1),
-                  ),
+                  IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: () => _updateStat(statId, currentValue + 1)),
                 ],
               ),
             ),
           );
         }).toList(),
-
         const SizedBox(height: 20),
         const Text("État", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
         const Divider(),
@@ -219,9 +237,7 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
   Widget _buildBioTab() {
     final List<String> validClasses = widget.rules.classes;
     String? currentClass = widget.character.getStat<String?>('class', null);
-    if (currentClass != null && !validClasses.contains(currentClass)) {
-      currentClass = null;
-    }
+    if (currentClass != null && !validClasses.contains(currentClass)) currentClass = null;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -252,39 +268,29 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
             onEditingComplete: _saveChanges,
           ),
           const SizedBox(height: 10),
-          ElevatedButton.icon(
-            onPressed: _saveChanges,
-            icon: const Icon(Icons.save),
-            label: const Text("Sauvegarder"),
-          )
+          ElevatedButton.icon(onPressed: _saveChanges, icon: const Icon(Icons.save), label: const Text("Sauvegarder")),
         ],
       ),
     );
   }
+
+ 
 }
 
-// --- WIDGET INVENTAIRE OPTIMISÉ ---
+// --- SOUS-WIDGETS ---
+
 class InventoryTab extends StatefulWidget {
   final CharacterModel character;
-  final List<Map<String, dynamic>> availableItems; // Reçoit les données du serveur
+  final List<Map<String, dynamic>> availableItems;
   final bool isLoading;
   final VoidCallback onSave;
-
-  const InventoryTab({
-    super.key, 
-    required this.character, 
-    required this.availableItems, 
-    required this.isLoading,
-    required this.onSave
-  });
-
+  const InventoryTab({super.key, required this.character, required this.availableItems, required this.isLoading, required this.onSave});
   @override
   State<InventoryTab> createState() => _InventoryTabState();
 }
 
 class _InventoryTabState extends State<InventoryTab> {
   late List<dynamic> _items;
-
   @override
   void initState() {
     super.initState();
@@ -292,15 +298,10 @@ class _InventoryTabState extends State<InventoryTab> {
   }
 
   void _addItem() {
-    if (widget.isLoading) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chargement du compendium...")));
-      return;
-    }
-
+    if (widget.isLoading) return;
     String selectedName = "";
     String selectedDesc = "";
     TextEditingController qtyCtrl = TextEditingController(text: "1");
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -309,32 +310,21 @@ class _InventoryTabState extends State<InventoryTab> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Autocomplete<Map<String, dynamic>>(
-              optionsBuilder: (TextEditingValue textEditingValue) {
+              optionsBuilder: (textEditingValue) {
                 if (textEditingValue.text == '') return const Iterable.empty();
-                // Filtre la liste reçue du serveur
-                return widget.availableItems.where((Map<String, dynamic> option) {
-                  return option['name'].toString().toLowerCase()
-                      .contains(textEditingValue.text.toLowerCase());
-                });
+                return widget.availableItems.where((o) => o['name'].toString().toLowerCase().contains(textEditingValue.text.toLowerCase()));
               },
-              displayStringForOption: (Map<String, dynamic> option) => option['name'],
-              onSelected: (Map<String, dynamic> selection) {
-                selectedName = selection['name'];
-                selectedDesc = selection['desc'] ?? "";
-              },
+              displayStringForOption: (o) => o['name'],
+              onSelected: (s) { selectedName = s['name']; selectedDesc = s['desc'] ?? ""; },
               fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
                 return TextField(
                   controller: textEditingController,
                   focusNode: focusNode,
-                  decoration: const InputDecoration(
-                    labelText: "Nom de l'objet (Recherche...)",
-                    suffixIcon: Icon(Icons.search),
-                  ),
+                  decoration: const InputDecoration(labelText: "Nom de l'objet", suffixIcon: Icon(Icons.search)),
                   onChanged: (val) => selectedName = val,
                 );
               },
             ),
-            const SizedBox(height: 10),
             TextField(controller: qtyCtrl, decoration: const InputDecoration(labelText: "Quantité"), keyboardType: TextInputType.number),
           ],
         ),
@@ -344,11 +334,7 @@ class _InventoryTabState extends State<InventoryTab> {
             onPressed: () {
               if (selectedName.isNotEmpty) {
                 setState(() {
-                  _items.add({
-                    'name': selectedName,
-                    'qty': int.tryParse(qtyCtrl.text) ?? 1,
-                    'desc': selectedDesc
-                  });
+                  _items.add({'name': selectedName, 'qty': int.tryParse(qtyCtrl.text) ?? 1, 'desc': selectedDesc});
                   widget.character.setStat('inventory', _items);
                 });
                 widget.onSave();
@@ -362,102 +348,55 @@ class _InventoryTabState extends State<InventoryTab> {
     );
   }
 
-  void _removeItem(int index) {
-    setState(() {
-      _items.removeAt(index);
-      widget.character.setStat('inventory', _items);
-    });
-    widget.onSave();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        onPressed: _addItem,
-        backgroundColor: Colors.brown,
-        child: const Icon(Icons.add),
-      ),
-      body: _items.isEmpty
-          ? const Center(child: Text("Sac à dos vide."))
-          : ListView.builder(
-              padding: const EdgeInsets.only(bottom: 80),
-              itemCount: _items.length,
-              itemBuilder: (ctx, i) {
-                final item = _items[i];
-                return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: ExpansionTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.brown[100],
-                      child: Text("${item['qty']}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.brown)),
-                    ),
-                    title: Text(item['name'] ?? "Objet inconnu"),
-                    children: [
-                      if (item['desc'] != null && item['desc'].toString().isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Text(item['desc'], style: const TextStyle(fontStyle: FontStyle.italic)),
-                        ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton.icon(
-                            icon: const Icon(Icons.delete, color: Colors.red),
-                            label: const Text("Jeter", style: TextStyle(color: Colors.red)),
-                            onPressed: () => _removeItem(i),
-                          )
-                        ],
-                      )
-                    ],
-                  ),
-                );
-              },
+      floatingActionButton: FloatingActionButton(onPressed: _addItem, backgroundColor: Colors.brown, child: const Icon(Icons.add)),
+      body: _items.isEmpty 
+        ? const Center(child: Text("Sac à dos vide.")) 
+        : ListView.builder(
+            itemCount: _items.length,
+            itemBuilder: (ctx, i) => Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: ExpansionTile(
+                leading: CircleAvatar(child: Text("${_items[i]['qty']}")),
+                title: Text(_items[i]['name'] ?? "Objet"),
+                children: [
+                  if (_items[i]['desc'] != null) Padding(padding: const EdgeInsets.all(16), child: Text(_items[i]['desc'])),
+                  IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () {
+                    setState(() { _items.removeAt(i); widget.character.setStat('inventory', _items); });
+                    widget.onSave();
+                  }),
+                ],
+              ),
             ),
+          ),
     );
   }
 }
 
-// --- WIDGET GRIMOIRE OPTIMISÉ ---
 class SpellbookTab extends StatefulWidget {
   final CharacterModel character;
-  final List<Map<String, dynamic>> availableSpells; // Reçoit les données du serveur
+  final List<Map<String, dynamic>> availableSpells;
   final bool isLoading;
   final VoidCallback onSave;
-
-  const SpellbookTab({
-    super.key, 
-    required this.character, 
-    required this.availableSpells, 
-    required this.isLoading, 
-    required this.onSave
-  });
-
+  const SpellbookTab({super.key, required this.character, required this.availableSpells, required this.isLoading, required this.onSave});
   @override
   State<SpellbookTab> createState() => _SpellbookTabState();
 }
 
 class _SpellbookTabState extends State<SpellbookTab> {
   late List<dynamic> _spells;
-
   @override
   void initState() {
     super.initState();
-    // 'spells' est la clé de sauvegarde dans le CharacterModel
     _spells = widget.character.getStat<List<dynamic>>('spells', []);
   }
 
   void _addSpell() {
-    if (widget.isLoading) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chargement du compendium...")));
-      return;
-    }
-
+    if (widget.isLoading) return;
     String selectedName = "";
-    int selectedLevel = 0;
     TextEditingController levelCtrl = TextEditingController(text: "0");
-    TextEditingController nameDisplayCtrl = TextEditingController();
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -466,60 +405,33 @@ class _SpellbookTabState extends State<SpellbookTab> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Autocomplete<Map<String, dynamic>>(
-              optionsBuilder: (TextEditingValue textEditingValue) {
+              optionsBuilder: (textEditingValue) {
                 if (textEditingValue.text == '') return const Iterable.empty();
-                // Filtre la liste reçue du serveur
-                return widget.availableSpells.where((Map<String, dynamic> option) {
-                  return option['name'].toString().toLowerCase()
-                      .contains(textEditingValue.text.toLowerCase());
-                });
+                return widget.availableSpells.where((o) => o['name'].toString().toLowerCase().contains(textEditingValue.text.toLowerCase()));
               },
-              displayStringForOption: (Map<String, dynamic> option) => option['name'],
-              onSelected: (Map<String, dynamic> selection) {
-                selectedName = selection['name'];
-                selectedLevel = selection['level'] ?? 0;
-                levelCtrl.text = selectedLevel.toString();
-              },
-              fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
-                nameDisplayCtrl = textEditingController;
-                return TextField(
-                  controller: textEditingController,
-                  focusNode: focusNode,
-                  decoration: const InputDecoration(
-                    labelText: "Nom du sort",
-                    suffixIcon: Icon(Icons.auto_fix_high),
-                  ),
-                  onChanged: (val) => selectedName = val,
-                );
-              },
+              displayStringForOption: (o) => o['name'],
+              onSelected: (s) { selectedName = s['name']; levelCtrl.text = (s['level'] ?? 0).toString(); },
+              fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) => TextField(
+                controller: controller, focusNode: focusNode,
+                decoration: const InputDecoration(labelText: "Nom du sort"),
+                onChanged: (val) => selectedName = val,
+              ),
             ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: levelCtrl, 
-              decoration: const InputDecoration(labelText: "Niveau (0 = Cantrip)"), 
-              keyboardType: TextInputType.number
-            ),
+            TextField(controller: levelCtrl, decoration: const InputDecoration(labelText: "Niveau"), keyboardType: TextInputType.number),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
-          ElevatedButton(
-            onPressed: () {
-              if (selectedName.isNotEmpty) {
-                setState(() {
-                  _spells.add({
-                    'name': selectedName,
-                    'level': int.tryParse(levelCtrl.text) ?? 0,
-                    'prepared': false
-                  });
-                  widget.character.setStat('spells', _spells);
-                });
-                widget.onSave();
-              }
-              Navigator.pop(ctx);
-            },
-            child: const Text("Ajouter"),
-          )
+          ElevatedButton(onPressed: () {
+            if (selectedName.isNotEmpty) {
+              setState(() {
+                _spells.add({'name': selectedName, 'level': int.tryParse(levelCtrl.text) ?? 0});
+                widget.character.setStat('spells', _spells);
+              });
+              widget.onSave();
+            }
+            Navigator.pop(ctx);
+          }, child: const Text("Ajouter")),
         ],
       ),
     );
@@ -528,41 +440,23 @@ class _SpellbookTabState extends State<SpellbookTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        onPressed: _addSpell,
-        backgroundColor: Colors.purple,
-        child: const Icon(Icons.auto_fix_high),
-      ),
-      body: _spells.isEmpty
-          ? const Center(child: Text("Grimoire vide."))
-          : ListView.builder(
-              padding: const EdgeInsets.only(bottom: 80),
-              itemCount: _spells.length,
-              itemBuilder: (ctx, i) {
-                final spell = _spells[i];
-                return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.purple[100],
-                      child: Text("${spell['level']}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.purple)),
-                    ),
-                    title: Text(spell['name'] ?? "Sort inconnu"),
-                    subtitle: Text(spell['level'] == 0 ? "Tour de magie" : "Niveau ${spell['level']}"),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.grey),
-                      onPressed: () {
-                        setState(() {
-                          _spells.removeAt(i);
-                          widget.character.setStat('spells', _spells);
-                        });
-                        widget.onSave();
-                      },
-                    ),
-                  ),
-                );
-              },
+      floatingActionButton: FloatingActionButton(onPressed: _addSpell, backgroundColor: Colors.purple, child: const Icon(Icons.auto_fix_high)),
+      body: _spells.isEmpty 
+        ? const Center(child: Text("Grimoire vide.")) 
+        : ListView.builder(
+            itemCount: _spells.length,
+            itemBuilder: (ctx, i) => Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: ListTile(
+                leading: CircleAvatar(backgroundColor: Colors.purple[100], child: Text("${_spells[i]['level']}")),
+                title: Text(_spells[i]['name'] ?? "Sort"),
+                trailing: IconButton(icon: const Icon(Icons.delete), onPressed: () {
+                  setState(() { _spells.removeAt(i); widget.character.setStat('spells', _spells); });
+                  widget.onSave();
+                }),
+              ),
             ),
+          ),
     );
   }
 }

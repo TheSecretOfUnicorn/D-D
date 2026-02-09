@@ -133,7 +133,42 @@ class CampaignRepository {
     );
   }
 
+Future<bool> deleteCampaign(int campaignId) async {
+    final url = "$baseUrl/campaigns/$campaignId";
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // 👇 CORRECTION ICI 👇
+      // On utilise .get() pour récupérer l'ID qu'il soit String ou Int
+      // Puis on force le .toString() pour être sûr d'avoir du texte pour le Header
+      final userId = prefs.get('user_id')?.toString();
 
+      if (userId == null) {
+        print("Erreur: Pas d'utilisateur connecté");
+        return false; 
+      }
+
+      final response = await http.delete(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': userId, // Maintenant c'est bien une String ("23")
+        },
+      );
+
+
+
+print("🗑️ DELETE STATUS: ${response.statusCode}");
+      print("🗑️ DELETE BODY: ${response.body}");
+
+
+      return response.statusCode == 200;
+    } catch (e) {
+      print("Erreur delete campaign: $e");
+      return false;
+    }
+  }
 
 
 

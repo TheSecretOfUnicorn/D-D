@@ -29,6 +29,7 @@ class CompendiumRepository {
           content['name'] = entry['name'];
           content['type'] = entry['type'];
           content['tags'] = entry['tags'];
+          content['id'] = entry['id'];
           
           if (entry['type'] == 'item') {
             items.add(content);
@@ -50,4 +51,63 @@ class CompendiumRepository {
       return {'items': [], 'spells': []};
     }
   }
+
+/// Ajoute une nouvelle entrée (Item ou Spell) dans la BDD
+  Future<bool> addEntry({
+    required String type, // 'item' ou 'spell'
+    required String name,
+    required Map<String, dynamic> data,
+    List<String>? tags,
+    String? campaignId, // Null pour global, ou ID campagne
+  }) async {
+    final String url = "$baseUrl/compendium";
+
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "campaign_id": campaignId,
+          "type": type,
+          "name": name,
+          "data": data,
+          "tags": tags ?? [],
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return true;
+      } else {
+        print("Erreur création: ${response.body}");
+        return false;
+      }
+    } catch (e) {
+      print("Erreur réseau création: $e");
+      return false;
+    }
+  }
+
+/// Supprime une entrée de la BDD via son ID
+  Future<bool> deleteEntry(int id) async {
+    final String url = "$baseUrl/compendium/$id";
+
+    try {
+      final response = await http.delete(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        return true;
+      } else {
+        print("Erreur suppression: ${response.body}");
+        return false;
+      }
+    } catch (e) {
+      print("Erreur réseau suppression: $e");
+      return false;
+    }
+  }
+
+
+
+
+
 }

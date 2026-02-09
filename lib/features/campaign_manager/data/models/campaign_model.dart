@@ -1,29 +1,42 @@
 class CampaignModel {
-  final int id; // Changement: String -> int (car SERIAL SQL)
+  final int id;
   final String title;
-  final String? inviteCode;
-  final DateTime lastPlayed;
-  final bool allowDice;
+  final String inviteCode; // 👈 Corrigé : String (pas String?)
+  final int gmId;
+  final String role;       // 👈 Corrigé : Ajouté pour corriger l'erreur dashboard
+  final bool allowDice;    // 👈 Corrigé : Ajouté pour corriger l'erreur game page
 
   CampaignModel({
     required this.id,
     required this.title,
-    this.inviteCode,
-    required this.lastPlayed,
-    required this.allowDice,
+    required this.inviteCode,
+    required this.gmId,
+    required this.role,
+    this.allowDice = true,
   });
 
-  // Factory pour convertir le JSON de PostgreSQL
   factory CampaignModel.fromJson(Map<String, dynamic> json) {
     return CampaignModel(
-      id: json['id'], // L'ID est un entier en SQL
+      id: json['id'],
       title: json['title'],
-      inviteCode: json['invite_code'], // Attention au snake_case
-      // PostgreSQL renvoie une date String ISO 8601
-      lastPlayed: json['created_at'] != null 
-          ? DateTime.parse(json['created_at']) 
-          : DateTime.now(),
+      // Si le code est null dans la BDD, on met '????' pour éviter le crash
+      inviteCode: json['invite_code'] ?? '????', 
+      gmId: json['gm_id'] ?? 0,
+      // Si le rôle n'est pas renvoyé, on assume que c'est un Joueur
+      role: json['role'] ?? 'PLAYER',
+      // Par défaut, on autorise les dés
       allowDice: json['allow_dice'] ?? true,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'invite_code': inviteCode,
+      'gm_id': gmId,
+      'role': role,
+      'allow_dice': allowDice,
+    };
   }
 }

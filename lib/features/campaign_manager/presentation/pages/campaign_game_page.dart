@@ -178,7 +178,7 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
                 context: context,
                 builder: (_) => AlertDialog(
                   title: const Text("Code Invitation"),
-                  content: Text(widget.campaign.inviteCode ?? "Aucun", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                  content: Text(widget.campaign.inviteCode, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                 ),
               );
             },

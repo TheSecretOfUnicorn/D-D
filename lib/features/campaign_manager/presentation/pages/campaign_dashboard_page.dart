@@ -20,7 +20,7 @@ import '../../data/repositories/campaign_repository.dart';
 
 class CampaignDashboardPage extends StatefulWidget {
   const CampaignDashboardPage({super.key});
-
+  
   @override
   State<CampaignDashboardPage> createState() => _CampaignDashboardPageState();
 }
@@ -73,7 +73,6 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        // On n'affiche l'erreur que si ce n'est pas juste un log vide
         if (!e.toString().contains("ClientException")) { 
            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Info: ${e.toString().substring(0, 50)}...")));
         }
@@ -115,9 +114,8 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
     _loadData();
   }
 
-  // --- IMPORT (RÉINTÉGRÉ) ---
+  // --- IMPORT ---
   void _importCharacter() async {
-    // 1. Lire le presse-papier
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     
     if (data == null || data.text == null || data.text!.isEmpty) {
@@ -125,11 +123,9 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
       return;
     }
 
-    // 2. Convertir
     final newChar = _sharingService.importCharacter(data.text!);
 
     if (newChar != null && mounted) {
-      // 3. Demander confirmation
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -203,6 +199,77 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
     );
   }
 
+  // 👇 AJOUT : SUPPRESSION CAMPAGNE
+  void _deleteCampaign(int campaignId) async {
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Supprimer la campagne ?"),
+        content: const Text("Cette action est irréversible. Tout l'historique et le chat seront perdus."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Annuler")),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("SUPPRIMER", style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() => _isLoading = true);
+      try {
+        bool success = await _campaignRepo.deleteCampaign(campaignId);
+        if (success) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Campagne supprimée.")));
+        } else {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Erreur lors de la suppression.")));
+        }
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur: $e")));
+      } finally {
+        _loadData(); // Recharger la liste quoi qu'il arrive
+      }
+    }
+  }
+
+  void _showJoinDialog() {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Rejoindre une Table"),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: "Code invitation (ex: X7Z9)",
+            labelText: "Code",
+            border: OutlineInputBorder(),
+          ),
+          textCapitalization: TextCapitalization.characters,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
+          ElevatedButton(
+            onPressed: () async {
+              if (controller.text.isNotEmpty) {
+                Navigator.pop(ctx);
+                setState(() => _isLoading = true);
+                try {
+                  await _campaignRepo.joinCampaign(controller.text);
+                  await _loadData();
+                  if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bienvenue dans l'aventure !")));
+                } catch (e) {
+                  if (mounted) {
+                    setState(() => _isLoading = false);
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceAll("Exception: ", ""))));
+                  }
+                }
+              }
+            },
+            child: const Text("Rejoindre"),
+          )
+        ],
+      ),
+    );
+  }
 
   // --- UI ---
 
@@ -218,33 +285,28 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
             Tab(icon: Icon(Icons.cloud), text: "Campagnes"),
           ],
         ),
-        // --- BOUTONS RÉINTÉGRÉS ICI ---
         actions: [
-          // 1. IMPORT
           IconButton(
             icon: const Icon(Icons.download),
             tooltip: "Importer JSON",
             onPressed: _importCharacter,
           ),
-          // 2. WIKI
           IconButton(
             icon: const Icon(Icons.menu_book),
             tooltip: "Wiki / Notes",
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WikiPage())),
           ),
-          // 3. COMPENDIUM (Règles)
           IconButton(
             icon: const Icon(Icons.auto_stories),
             tooltip: "Compendium",
             onPressed: () {
               if (_loadedRules != null) {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => CompendiumPage(rules: _loadedRules!)));
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const CompendiumPage()));
               } else {
                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Règles non chargées")));
               }
             },
           ),
-          // 4. COMBAT
           IconButton(
             icon: const Icon(Icons.flash_on),
             tooltip: "Combat Tracker",
@@ -260,9 +322,8 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
             children: [
               // --- ONGLET 1 : PERSONNAGES (Local) ---
               Scaffold(
-                // Bouton Créer Perso
                 floatingActionButton: FloatingActionButton(
-                  heroTag: "btnCreateChar", // Tag unique obligatoire quand il y a 2 FAB
+                  heroTag: "btnCreateChar",
                   onPressed: _createNewCharacter,
                   backgroundColor: Colors.teal,
                   tooltip: "Créer un Personnage",
@@ -296,12 +357,9 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
 
              // --- ONGLET 2 : CAMPAGNES (Cloud) ---
               Scaffold(
-                // On utilise une Row ou une Column pour le FAB, ou mieux : un SpeedDial.
-                // Pour faire simple sans librairie externe, on met deux boutons en bas à droite.
                 floatingActionButton: Column(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    // Bouton REJOINDRE (Blanc/Gris)
                     FloatingActionButton.extended(
                       heroTag: "btnJoinCamp",
                       onPressed: _showJoinDialog,
@@ -311,7 +369,6 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
                       foregroundColor: Colors.indigo,
                     ),
                     const SizedBox(height: 16),
-                    // Bouton CRÉER (Indigo)
                     FloatingActionButton.extended(
                       heroTag: "btnCreateCamp",
                       onPressed: _createNewCampaign,
@@ -335,27 +392,36 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
                       ),
                     )
                   : ListView.builder(
-                      padding: const EdgeInsets.only(bottom: 150), // Place pour les 2 boutons
+                      padding: const EdgeInsets.only(bottom: 150),
                       itemCount: _campaigns.length,
                       itemBuilder: (ctx, i) {
                         final camp = _campaigns[i];
+                        final isGM = camp.role == 'GM'; // Je suppose que ton modèle a ce champ 'role'
+                        
                         return Card(
                           margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                           elevation: 3,
                           child: ListTile(
                             leading: CircleAvatar(
-                              backgroundColor: Colors.indigo,
+                              backgroundColor: isGM ? Colors.deepOrange : Colors.indigo,
                               child: Icon(
-                                // Icône différente si je suis MJ ou Joueur (info à ajouter dans le modèle plus tard)
-                                Icons.castle, 
+                                isGM ? Icons.security : Icons.shield, 
                                 color: Colors.white
                               ),
                             ),
                             title: Text(camp.title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Text("Code: ${camp.inviteCode}"),
-                            trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                            subtitle: Text(isGM ? "Maître du Jeu • Code: ${camp.inviteCode}" : "Joueur"),
+                            
+                            // 👇 MODIFICATION ICI : BOUTON SUPPRIMER SI MJ, SINON FLÈCHE
+                            trailing: isGM 
+                              ? IconButton(
+                                  icon: const Icon(Icons.delete_forever, color: Colors.redAccent),
+                                  tooltip: "Supprimer la campagne",
+                                  onPressed: () => _deleteCampaign(camp.id),
+                                )
+                              : const Icon(Icons.arrow_forward_ios, size: 14),
+                            
                             onTap: () {
-                              // NAVIGATION VERS LA SALLE DE JEU
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
@@ -372,48 +438,4 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
           ),
     );
   }
-
-// Fonction pour afficher la popup "Entrer le code"
-  void _showJoinDialog() {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Rejoindre une Table"),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: "Code invitation (ex: X7Z9)",
-            labelText: "Code",
-            border: OutlineInputBorder(),
-          ),
-          textCapitalization: TextCapitalization.characters, // Clavier majuscules
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
-          ElevatedButton(
-            onPressed: () async {
-              if (controller.text.isNotEmpty) {
-                Navigator.pop(ctx);
-                setState(() => _isLoading = true);
-                try {
-                  await _campaignRepo.joinCampaign(controller.text);
-                  await _loadData(); // Recharger la liste pour voir la nouvelle campagne
-                  if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bienvenue dans l'aventure !")));
-                } catch (e) {
-                  if (mounted) {
-                    setState(() => _isLoading = false);
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceAll("Exception: ", ""))));
-                  }
-                }
-              }
-            },
-            child: const Text("Rejoindre"),
-          )
-        ],
-      ),
-    );
-  }
-
-
 }
