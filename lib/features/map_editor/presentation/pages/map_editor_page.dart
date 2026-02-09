@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../painters/grid_painter.dart';
 import '../../domain/models/map_config_model.dart';
-
+import 'dart:ui' as ui; // Nécessaire pour le type ui.Image
+import '../../../../core/utils/image_loader.dart';
+import '../painters/tile_layer_painter.dart';
 
 class MapEditorPage extends StatefulWidget {
   const MapEditorPage({Key? key}) : super(key: key);
@@ -22,7 +24,30 @@ class _MapEditorPageState extends State<MapEditorPage> {
 
   // TransformationController permet de manipuler le zoom/pan par code si besoin
   final TransformationController _transformationController =
-      TransformationController();
+        TransformationController();
+
+      ui.Image? _floorTexture;
+      bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAssets();
+  }
+
+  Future<void> _loadAssets() async {
+    try {
+      // Charge la texture depuis les assets
+      final image = await ImageLoader.loadAsset('assets/images/tiles/stone_floor.png');
+      setState(() {
+        _floorTexture = image;
+        _isLoading = false;
+      });
+    } catch (e) {
+      debugPrint("Erreur chargement asset: $e");
+      setState(() => _isLoading = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -83,7 +108,10 @@ class _MapEditorPageState extends State<MapEditorPage> {
 class MapCanvasWidget extends StatelessWidget {
   final MapConfig mapConfig;
 
+
   const MapCanvasWidget({Key? key, required this.mapConfig}) : super(key: key);
+  
+  ui.Image? get _floorTexture => null;
 
   @override
   Widget build(BuildContext context) {
@@ -103,12 +131,14 @@ class MapCanvasWidget extends StatelessWidget {
           ),
 
           // =========== LAYER 1 : TUILES (SOL) ===========
-          // RepaintBoundary est vital pour la performance :
-          // Il met en cache le dessin de ce calque tant qu'il ne change pas.
           RepaintBoundary(
             child: CustomPaint(
               size: Size(mapConfig.totalWidth, mapConfig.totalHeight),
-              painter: TileLayerPainterStub(config: mapConfig),
+              // ON PASSE L'IMAGE AU PAINTER
+              painter: TileLayerPainter(
+                config: mapConfig, 
+                tileImage: _floorTexture // Peut être null au début, le painter gère ça
+              ),
             ),
           ),
 

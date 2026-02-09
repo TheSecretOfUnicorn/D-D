@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 // pour aller chercher dans campaign_manager
 import '../../../campaign_manager/data/models/note_model.dart';
 import '../../../campaign_manager/data/repositories/notes_repository.dart';
+import '../../../map_editor/presentation/pages/map_editor_page.dart';
 
 class WikiPage extends StatefulWidget {
   const WikiPage({super.key});
@@ -250,6 +251,19 @@ class _WikiPageState extends State<WikiPage> {
               onPressed: () => _createItem(isFolder: false),
               child: const Icon(Icons.note_add),
             ),
+
+// ---- DEBUG : Accès rapide à l'éditeur de carte (À supprimer en prod) ---
+
+IconButton(
+            icon: const Icon(Icons.bug_report, color: Colors.redAccent),
+            tooltip: 'Ouvrir Éditeur de Carte (Debug)',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const MapEditorPage()),
+              );
+            },
+          ),
+//--------------------------------------------------------------------------------
           ],
         ),
       ),
