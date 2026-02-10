@@ -1,59 +1,62 @@
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import '../../domain/models/map_config_model.dart';
+import '../../../../core/utils/hex_utils.dart';
 
 class TileLayerPainter extends CustomPainter {
   final MapConfig config;
-  final ui.Image? tileImage; // L'image texture chargée
+  final ui.Image? tileImage;
+  final Set<String> paintedCells;
+  final double radius; // <--- C'EST CE CHAMP QUI MANQUE CHEZ TOI
 
   TileLayerPainter({
     required this.config,
     this.tileImage,
+    required this.paintedCells,
+    required this.radius, // <--- ET CE CONSTRUCTEUR
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // DEBUG VISUEL : Si pas d'image, on dessine un carré ROSE FLUO
-    if (tileImage == null) {
-      final debugPaint = Paint()..color = Colors.pinkAccent;
-      // Dessine un carré dans la première case pour dire "Je suis là mais j'ai pas d'image"
-      canvas.drawRect(Rect.fromLTWH(0, 0, config.cellSize, config.cellSize), debugPaint);
-      return;
-    }
+    if (tileImage == null) return;
 
     final paint = Paint();
-    final double cellSize = config.cellSize;
+    // Utilisation du rayon reçu
+    final hexPath = HexUtils.getHexPath(radius);
+    
+    final srcRect = Rect.fromLTWH(0, 0, tileImage!.width.toDouble(), tileImage!.height.toDouble());
 
-    // Rectangle source (toute l'image texture)
-    final srcRect = Rect.fromLTWH(
-      0, 0, 
-      tileImage!.width.toDouble(), 
-      tileImage!.height.toDouble()
-    );
+    for (String key in paintedCells) {
+      final parts = key.split(',');
+      final int col = int.parse(parts[0]);
+      final int row = int.parse(parts[1]);
 
-    // Boucle optimisée : On dessine la tuile sur chaque case de la grille
-    // Note: Plus tard, on lira une matrice pour savoir QUELLE image mettre où.
-    // Pour l'instant, c'est du remplissage uniforme ("Fill").
-    for (int col = 0; col < config.widthInCells; col++) {
-      for (int row = 0; row < config.heightInCells; row++) {
-        
-        // Calcul de la position de la case
-        final dstRect = Rect.fromLTWH(
-          col * cellSize, 
-          row * cellSize, 
-          cellSize, 
-          cellSize
-        );
+      // Positionnement précis
+      final center = HexUtils.gridToPixel(col, row, radius);
 
-        // Dessin de l'image redimensionnée dans la case
-        canvas.drawImageRect(tileImage!, srcRect, dstRect, paint);
-      }
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      
+      // Découpe hexagonale
+      canvas.clipPath(hexPath);
+
+      // Dessin centré
+      final dstRect = Rect.fromCenter(
+        center: Offset.zero, 
+        width: radius * 2, 
+        height: radius * 2
+      );
+      canvas.drawImageRect(tileImage!, srcRect, dstRect, paint);
+      
+      canvas.restore();
     }
   }
 
   @override
   bool shouldRepaint(covariant TileLayerPainter oldDelegate) {
-    // On repeint si la config change OU si l'image vient d'être chargée
-    return config != oldDelegate.config || tileImage != oldDelegate.tileImage;
+    return config != oldDelegate.config || 
+           tileImage != oldDelegate.tileImage ||
+           paintedCells != oldDelegate.paintedCells ||
+           radius != oldDelegate.radius;
   }
 }

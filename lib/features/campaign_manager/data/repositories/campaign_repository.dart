@@ -209,7 +209,33 @@ class CampaignRepository {
       return false;
     }
   }
-// Sélectionner un personnage pour la session
+// --- 3. GESTION DES MEMBRES & PERSONNAGES (Code Manquant) ---
+
+  /// Récupère la liste des membres avec leurs personnages
+  Future<List<Map<String, dynamic>>> getMembers(int campaignId) async {
+    final url = "$baseUrl/campaigns/$campaignId/members";
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.get('user_id')?.toString(); // Toujours sécuriser l'ID
+      if (userId == null) return [];
+
+      final response = await http.get(
+        Uri.parse(url), 
+        headers: {'x-user-id': userId}
+      );
+
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+      }
+      print("🚨 ERREUR GET MEMBERS: ${response.body}"); // Debug
+      return [];
+    } catch (e) {
+      print("Erreur getMembers: $e");
+      return [];
+    }
+  }
+
+  /// Sélectionne le personnage actif pour cette campagne
   Future<bool> selectCharacter(int campaignId, String characterId) async {
     final url = "$baseUrl/campaigns/$campaignId/select-character";
     try {
@@ -220,31 +246,12 @@ class CampaignRepository {
       await http.post(
         Uri.parse(url),
         headers: {'Content-Type': 'application/json', 'x-user-id': userId},
-        body: jsonEncode({"character_id": int.tryParse(characterId)}), // Attention conversion String -> Int pour la DB
+        body: jsonEncode({"character_id": int.tryParse(characterId)}), // Conversion String -> Int
       );
       return true;
     } catch (e) {
       print("Erreur selectCharacter: $e");
       return false;
-    }
-  }
-
-  // Récupérer les membres AVEC leurs persos
-  Future<List<Map<String, dynamic>>> getMembers(int campaignId) async {
-    final url = "$baseUrl/campaigns/$campaignId/members";
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final userId = prefs.get('user_id')?.toString();
-      if (userId == null) return [];
-
-      final response = await http.get(Uri.parse(url), headers: {'x-user-id': userId});
-      if (response.statusCode == 200) {
-        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
-      }
-      return [];
-    } catch (e) {
-      print("Erreur getMembers: $e");
-      return [];
     }
   }
 

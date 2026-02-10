@@ -7,6 +7,10 @@ import '../../../character_sheet/data/repositories/character_repository_impl.dar
 import '../../../character_sheet/data/models/character_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// 👇 Nouveaux imports pour ouvrir la fiche
+import '../../../character_sheet/presentation/pages/character_sheet_page.dart';
+import '../../../rules_engine/data/repositories/rules_repository_impl.dart';
+
 class CampaignGamePage extends StatefulWidget {
   final CampaignModel campaign;
   const CampaignGamePage({super.key, required this.campaign});
@@ -23,7 +27,7 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
   final ScrollController _scrollController = ScrollController();
 
   List<Map<String, dynamic>> _logs = [];
-  List<Map<String, dynamic>> _members = []; // La liste des joueurs présents
+  List<Map<String, dynamic>> _members = []; 
   
   Timer? _refreshTimer;
   late bool _allowDice;
@@ -36,7 +40,6 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
     _allowDice = widget.campaign.allowDice;
     _initSession();
     
-    // Polling : Chat + Liste des membres (pour voir les PV changer en temps réel plus tard)
     _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _fetchLogs();
       _fetchMembers();
@@ -60,7 +63,6 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
     
     if (mounted) setState(() => _isLoading = false);
 
-    // Si je suis joueur et que je n'ai pas de perso assigné dans cette liste -> Popup
     _checkMyCharacter();
   }
 
@@ -78,31 +80,27 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
     } catch (_) {}
   }
 
-  // --- LOGIQUE DE SÉLECTION DE PERSONNAGE ---
   void _checkMyCharacter() {
     if (_currentUserId == null || widget.campaign.role == 'GM') return;
 
-    // Je cherche mon entrée dans la liste des membres
     final myEntry = _members.firstWhere(
       (m) => m['user_id'].toString() == _currentUserId, 
       orElse: () => {},
     );
 
-    // Si je n'ai pas de 'char_id', je dois en choisir un
     if (myEntry.isNotEmpty && myEntry['char_id'] == null) {
       _showCharacterSelector();
     }
   }
 
   void _showCharacterSelector() async {
-    // 1. Charger mes personnages locaux/cloud
     final myCharacters = await _charRepo.getAllCharacters();
 
     if (!mounted) return;
 
     showDialog(
       context: context,
-      barrierDismissible: false, // Obligatoire de choisir
+      barrierDismissible: false, 
       builder: (ctx) => AlertDialog(
         title: const Text("Qui jouez-vous ?"),
         content: SizedBox(
@@ -136,13 +134,44 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
 
   void _selectCharacter(CharacterModel c) async {
     await _campRepo.selectCharacter(widget.campaign.id, c.id);
-    _fetchMembers(); // Rafraîchir pour voir que je suis bien assigné
-    
-    // Petit message système
+    _fetchMembers(); 
     _campRepo.sendLog(widget.campaign.id, "a rejoint la table en tant que ${c.name} !");
   }
 
-  // --- ACTIONS DE JEU ---
+  // 👇 NOUVELLE FONCTION : OUVRIR MA FICHE DEPUIS LE JEU 👇
+  void _openMySheet() async {
+    if (_currentUserId == null) return;
+    
+    final myEntry = _members.firstWhere(
+      (m) => m['user_id'].toString() == _currentUserId, 
+      orElse: () => {},
+    );
+
+    if (myEntry.isEmpty || myEntry['char_data'] == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Aucun personnage sélectionné.")));
+      return;
+    }
+
+    // Reconstruction du personnage pour l'affichage
+    final character = CharacterModel.fromJson({
+      ...myEntry['char_data'], 
+      'id': myEntry['char_id'], 
+      'name': myEntry['char_name']
+    });
+
+    final rules = await RulesRepositoryImpl().loadDefaultRules();
+
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => CharacterSheetPage(
+          character: character, 
+          rules: rules,
+          campaignId: widget.campaign.id, // 👈 Active le mode "Jeu" avec les dés
+        )),
+      );
+    }
+  }
 
   void _sendMessage() async {
     if (_msgController.text.trim().isEmpty) return;
@@ -172,7 +201,14 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
           ],
         ),
         actions: [
-          // Bouton pour ouvrir le panneau des joueurs (Drawer) à droite
+          // 👇 BOUTON "MA FICHE" (Seulement pour les joueurs)
+          if (!isGM)
+            IconButton(
+              icon: const Icon(Icons.assignment_ind),
+              tooltip: "Ma Fiche",
+              onPressed: _openMySheet,
+            ),
+
           Builder(
             builder: (context) => IconButton(
               icon: const Icon(Icons.people),
@@ -181,7 +217,6 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
           ),
         ],
       ),
-      // LE PANNEAU LATÉRAL (Pour voir les joueurs et leurs stats)
       endDrawer: Drawer(
         child: Column(
           children: [
@@ -196,7 +231,6 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
                   final m = _members[i];
                   final hasChar = m['char_id'] != null;
                   
-                  // Récupération des stats depuis le JSON
                   final stats = hasChar ? m['char_data']['stats'] : {};
                   final hp = stats != null ? stats['hp_current'] : '?';
                   final ac = stats != null ? stats['ac'] : '?';
@@ -220,10 +254,6 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
                           ),
                         ) 
                       : null,
-                    onTap: isGM && hasChar ? () {
-                      // ICI : Future fonctionnalité "Action MJ"
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Action sur ${m['char_name']} à venir !")));
-                    } : null,
                   );
                 },
               ),
@@ -269,7 +299,6 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
               },
             ),
           ),
-          // Zone de saisie (identique à avant)
           Container(
             padding: const EdgeInsets.all(8),
             color: Colors.white,

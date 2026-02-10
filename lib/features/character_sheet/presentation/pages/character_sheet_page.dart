@@ -1,21 +1,25 @@
+import 'dart:async';
+import 'dart:math'; // Pour les jets de dés
 import 'package:flutter/material.dart';
+
 import '../../data/models/character_model.dart';
 import '../../data/repositories/character_repository_impl.dart';
 import '../../../rules_engine/data/models/rule_system_model.dart';
 import '../../../compendium/data/repositories/compendium_repository.dart';
 import '../../../compendium/presentation/pages/compendium_editor_page.dart';
-import 'dart:async';
-
-
+// 👇 Import nécessaire pour parler au Chat
+import '../../../campaign_manager/data/repositories/campaign_repository.dart';
 
 class CharacterSheetPage extends StatefulWidget {
   final CharacterModel character;
   final RuleSystemModel rules;
+  final int? campaignId; // 👈 Nouveau : Si présent, on est en mode "Jeu"
 
   const CharacterSheetPage({
     super.key,
     required this.character,
     required this.rules,
+    this.campaignId,
   });
 
   @override
@@ -25,10 +29,9 @@ class CharacterSheetPage extends StatefulWidget {
 class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final CharacterRepositoryImpl _repo = CharacterRepositoryImpl();
-  final CompendiumRepository _compendiumRepo = CompendiumRepository();
+  final CampaignRepository _campaignRepo = CampaignRepository(); // Pour envoyer les dés
   
-  Timer? _saveDebounce;
-
+  final CompendiumRepository _compendiumRepo = CompendiumRepository();
   List<Map<String, dynamic>> _onlineItems = [];
   List<Map<String, dynamic>> _onlineSpells = [];
   bool _isLoadingCompendium = true;
@@ -37,10 +40,11 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
   late TextEditingController _bioController;
   late TextEditingController _raceController;
 
+  Timer? _saveDebounce;
+
   @override
   void initState() {
     super.initState();
-    // 4 onglets : Stats, Bio, Inventaire, Sorts, Bibliothèque
     _tabController = TabController(length: 4, vsync: this);
     
     _nameController = TextEditingController(text: widget.character.name);
@@ -54,9 +58,8 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
     if (!mounted) return;
     setState(() => _isLoadingCompendium = true);
 
-    // Récupération avec l'ID de campagne s'il existe
-    final campaignId = widget.character.getStat<String?>('campaign_id', null);
-    final data = await _compendiumRepo.fetchFullCompendium(campaignId);
+    final campaignIdStr = widget.character.getStat<String?>('campaign_id', null);
+    final data = await _compendiumRepo.fetchFullCompendium(campaignIdStr);
     
     if (mounted) {
       setState(() {
@@ -69,11 +72,11 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
 
   @override
   void dispose() {
+    _saveDebounce?.cancel();
     _tabController.dispose();
     _nameController.dispose();
     _bioController.dispose();
     _raceController.dispose();
-    _saveDebounce?.cancel(); // Important : on tue le timer si on quitte la page
     super.dispose();
   }
 
@@ -85,14 +88,13 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
     try {
       await _repo.saveCharacter(widget.character);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Sauvegardé !"), duration: Duration(milliseconds: 500)),
-        );
+        // Discret en mode jeu, visible en mode édition
+        if (widget.campaignId == null) {
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sauvegardé !"), duration: Duration(milliseconds: 500)));
+        }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Erreur save: $e")));
-      }
+      // Error handling
     }
   }
 
@@ -102,6 +104,28 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
     });
     if (_saveDebounce?.isActive ?? false) _saveDebounce!.cancel();
     _saveDebounce = Timer(const Duration(milliseconds: 1000), _saveChanges);
+  }
+
+  // 🔥 FONCTION CLÉ : Lancer un dé et l'envoyer au chat 🔥
+  void _rollStat(String statName, int value) async {
+    if (widget.campaignId == null) return; // Pas de campagne = pas de chat
+
+    final mod = ((value - 10) / 2).floor();
+    final d20 = Random().nextInt(20) + 1;
+    final total = d20 + mod;
+    
+    final sign = mod >= 0 ? "+" : "";
+    final msg = "a testé $statName ($sign$mod) : $total"; // ex: "a testé Force (+3) : 15"
+
+    await _campaignRepo.sendLog(widget.campaignId!, msg, type: 'DICE', resultValue: total);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text("Jet envoyé : $total"), 
+        backgroundColor: Colors.indigo,
+        duration: const Duration(milliseconds: 800),
+      ));
+    }
   }
 
   @override
@@ -115,22 +139,18 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
           onSubmitted: (_) => _saveChanges(),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.library_add),
-            tooltip: "Créer un objet/sort (MJ)",
-            onPressed: () async {
-              final result = await Navigator.push(
-                context, 
-                MaterialPageRoute(builder: (_) => const CompendiumEditorPage())
-              );
-              
-              if (result == true) {
-                // Petit délai pour laisser la DB respirer
-                await Future.delayed(const Duration(milliseconds: 300));
-                _loadCompendium();
-              }
-            },
-          ),
+          // Raccourci MJ (visible seulement si on n'est PAS en mode jeu pour éviter la confusion)
+          if (widget.campaignId == null)
+            IconButton(
+              icon: const Icon(Icons.library_add),
+              onPressed: () async {
+                final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => const CompendiumEditorPage()));
+                if (result == true) {
+                  await Future.delayed(const Duration(milliseconds: 300));
+                  _loadCompendium();
+                }
+              },
+            ),
         ],
         bottom: TabBar(
           controller: _tabController,
@@ -140,7 +160,6 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
             Tab(icon: Icon(Icons.person), text: "Bio"),
             Tab(icon: Icon(Icons.backpack), text: "Inventaire"),
             Tab(icon: Icon(Icons.auto_fix_high), text: "Sorts"),
-        
           ],
         ),
       ),
@@ -149,25 +168,24 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
         children: [
           _buildStatsTab(),
           _buildBioTab(),
-          
-          // Onglet Inventaire
           InventoryTab(
-            key: ValueKey(_onlineItems.length), // Force le refresh
+            key: ValueKey(_onlineItems.length),
             character: widget.character, 
             availableItems: _onlineItems,
             isLoading: _isLoadingCompendium,
-            onSave: _saveChanges
+            onSave: _saveChanges,
+            campaignId: widget.campaignId, // On passe l'ID pour permettre l'utilisation
+            campaignRepo: _campaignRepo,
           ),
-          
-          // Onglet Sorts
           SpellbookTab(
-            key: ValueKey(_onlineSpells.length), // Force le refresh
+            key: ValueKey(_onlineSpells.length),
             character: widget.character, 
             availableSpells: _onlineSpells,
             isLoading: _isLoadingCompendium,
-            onSave: _saveChanges
+            onSave: _saveChanges,
+            campaignId: widget.campaignId,
+            campaignRepo: _campaignRepo,
           ),
-
         ],
       ),
     );
@@ -194,18 +212,32 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => _updateStat(statId, currentValue - 1)),
-                  Container(
-                    width: 40,
-                    alignment: Alignment.center,
-                    child: Text("$currentValue", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  // 👇 LE BOUTON DE JEU (Seulement si en campagne)
+                  if (widget.campaignId != null)
+                    IconButton(
+                      icon: const Icon(Icons.casino, color: Colors.deepOrange),
+                      tooltip: "Lancer le dé",
+                      onPressed: () => _rollStat(displayName, currentValue),
+                    ),
+                  
+                  // Éditeurs (Petits boutons discrets)
+                  SizedBox(
+                    height: 30, width: 30,
+                    child: IconButton(padding: EdgeInsets.zero, icon: const Icon(Icons.remove, size: 16), onPressed: () => _updateStat(statId, currentValue - 1)),
                   ),
-                  IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: () => _updateStat(statId, currentValue + 1)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text("$currentValue", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
+                  SizedBox(
+                    height: 30, width: 30,
+                    child: IconButton(padding: EdgeInsets.zero, icon: const Icon(Icons.add, size: 16), onPressed: () => _updateStat(statId, currentValue + 1)),
+                  ),
                 ],
               ),
             ),
           );
-        }),
+        }).toList(),
         const SizedBox(height: 20),
         const Text("État", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
         const Divider(),
@@ -244,10 +276,8 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Identité", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
           DropdownButtonFormField<String>(
-            initialValue: currentClass,
+            value: currentClass,
             decoration: const InputDecoration(labelText: "Classe", border: OutlineInputBorder()),
             items: validClasses.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
             onChanged: (val) => _updateStat('class', val),
@@ -259,32 +289,29 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
             onSubmitted: (_) => _saveChanges(),
           ),
           const SizedBox(height: 20),
-          const Text("Biographie", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
           TextField(
             controller: _bioController,
             maxLines: 10,
-            decoration: const InputDecoration(hintText: "L'histoire...", border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: "Biographie / Notes", border: OutlineInputBorder()),
             onEditingComplete: _saveChanges,
           ),
-          const SizedBox(height: 10),
-          ElevatedButton.icon(onPressed: _saveChanges, icon: const Icon(Icons.save), label: const Text("Sauvegarder")),
         ],
       ),
     );
   }
-
- 
 }
 
-// --- SOUS-WIDGETS ---
+// --- ONGLETS ADAPTÉS POUR LE JEU ---
 
 class InventoryTab extends StatefulWidget {
   final CharacterModel character;
   final List<Map<String, dynamic>> availableItems;
   final bool isLoading;
   final VoidCallback onSave;
-  const InventoryTab({super.key, required this.character, required this.availableItems, required this.isLoading, required this.onSave});
+  final int? campaignId; // Nouveau
+  final CampaignRepository? campaignRepo; // Nouveau
+
+  const InventoryTab({super.key, required this.character, required this.availableItems, required this.isLoading, required this.onSave, this.campaignId, this.campaignRepo});
   @override
   State<InventoryTab> createState() => _InventoryTabState();
 }
@@ -297,9 +324,15 @@ class _InventoryTabState extends State<InventoryTab> {
     _items = widget.character.getStat<List<dynamic>>('inventory', []);
   }
 
-  void _addItem() {
-    if (widget.isLoading) return;
-    String selectedName = "";
+  void _useItem(String name) {
+    if (widget.campaignId != null) {
+      widget.campaignRepo?.sendLog(widget.campaignId!, "a utilisé : $name");
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Utilisé : $name")));
+    }
+  }
+
+  void _addItem() { 
+     String selectedName = "";
     String selectedDesc = "";
     TextEditingController qtyCtrl = TextEditingController(text: "1");
     showDialog(
@@ -359,14 +392,22 @@ class _InventoryTabState extends State<InventoryTab> {
             itemBuilder: (ctx, i) => Card(
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: ExpansionTile(
-                leading: CircleAvatar(child: Text("${_items[i]['qty']}")),
+                leading: CircleAvatar(backgroundColor: Colors.brown[100], child: Text("${_items[i]['qty']}", style: const TextStyle(color: Colors.brown))),
                 title: Text(_items[i]['name'] ?? "Objet"),
                 children: [
                   if (_items[i]['desc'] != null) Padding(padding: const EdgeInsets.all(16), child: Text(_items[i]['desc'])),
-                  IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () {
-                    setState(() { _items.removeAt(i); widget.character.setStat('inventory', _items); });
-                    widget.onSave();
-                  }),
+                  Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                    if (widget.campaignId != null)
+                      TextButton.icon(
+                        icon: const Icon(Icons.touch_app, color: Colors.green), 
+                        label: const Text("Utiliser"), 
+                        onPressed: () => _useItem(_items[i]['name']),
+                      ),
+                    TextButton.icon(icon: const Icon(Icons.delete, color: Colors.red), label: const Text("Jeter"), onPressed: () {
+                      setState(() { _items.removeAt(i); widget.character.setStat('inventory', _items); });
+                      widget.onSave();
+                    }),
+                  ]),
                 ],
               ),
             ),
@@ -380,7 +421,10 @@ class SpellbookTab extends StatefulWidget {
   final List<Map<String, dynamic>> availableSpells;
   final bool isLoading;
   final VoidCallback onSave;
-  const SpellbookTab({super.key, required this.character, required this.availableSpells, required this.isLoading, required this.onSave});
+  final int? campaignId;
+  final CampaignRepository? campaignRepo;
+
+  const SpellbookTab({super.key, required this.character, required this.availableSpells, required this.isLoading, required this.onSave, this.campaignId, this.campaignRepo});
   @override
   State<SpellbookTab> createState() => _SpellbookTabState();
 }
@@ -393,9 +437,15 @@ class _SpellbookTabState extends State<SpellbookTab> {
     _spells = widget.character.getStat<List<dynamic>>('spells', []);
   }
 
-  void _addSpell() {
-    if (widget.isLoading) return;
-    String selectedName = "";
+  void _castSpell(String name) {
+    if (widget.campaignId != null) {
+      widget.campaignRepo?.sendLog(widget.campaignId!, "incante : $name ✨");
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lancé : $name")));
+    }
+  }
+
+  void _addSpell() { 
+     String selectedName = "";
     TextEditingController levelCtrl = TextEditingController(text: "0");
     showDialog(
       context: context,
@@ -448,12 +498,20 @@ class _SpellbookTabState extends State<SpellbookTab> {
             itemBuilder: (ctx, i) => Card(
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: ListTile(
-                leading: CircleAvatar(backgroundColor: Colors.purple[100], child: Text("${_spells[i]['level']}")),
+                leading: CircleAvatar(backgroundColor: Colors.purple[100], child: Text("${_spells[i]['level']}", style: const TextStyle(color: Colors.purple))),
                 title: Text(_spells[i]['name'] ?? "Sort"),
-                trailing: IconButton(icon: const Icon(Icons.delete), onPressed: () {
-                  setState(() { _spells.removeAt(i); widget.character.setStat('spells', _spells); });
-                  widget.onSave();
-                }),
+                subtitle: Text("Niveau ${_spells[i]['level']}"),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.campaignId != null)
+                      IconButton(icon: const Icon(Icons.auto_awesome, color: Colors.purple), onPressed: () => _castSpell(_spells[i]['name'])),
+                    IconButton(icon: const Icon(Icons.delete), onPressed: () {
+                      setState(() { _spells.removeAt(i); widget.character.setStat('spells', _spells); });
+                      widget.onSave();
+                    }),
+                  ],
+                ),
               ),
             ),
           ),

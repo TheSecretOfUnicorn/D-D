@@ -14,7 +14,7 @@ class CharacterModel {
   // --- 🔥 MÉTHODE BLINDÉE (Celle qui corrige ton erreur) 🔥 ---
   
   /// Récupère une stat avec un type forcé (T) et une valeur par défaut OBLIGATOIRE.
-  /// Exemple : getStat<int>("Force", 10) -> renverra toujours un int, jamais null.
+  /// Exemple : getStat&int&("Force", 10) -> renverra toujours un int, jamais null.
   T getStat<T>(String key, T defaultValue) {
     // 1. Si la clé n'existe pas ou si la valeur est explicitement null
     if (!stats.containsKey(key) || stats[key] == null) {
