@@ -255,7 +255,25 @@ class CampaignRepository {
     }
   }
 
+/// GM : Met à jour une stat d'un joueur (ex: PV)
+  Future<bool> updateMemberStat(int campaignId, String charId, String key, dynamic value) async {
+    final url = "$baseUrl/campaigns/$campaignId/members/$charId/stats";
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.get('user_id')?.toString();
+      if (userId == null) return false;
 
+      await http.patch(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json', 'x-user-id': userId},
+        body: jsonEncode({"key": key, "value": value}),
+      );
+      return true;
+    } catch (e) {
+      print("Erreur updateMemberStat: $e");
+      return false;
+    }
+  }
 
   
 }

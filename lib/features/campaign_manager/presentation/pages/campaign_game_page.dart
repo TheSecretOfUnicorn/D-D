@@ -3,11 +3,10 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../data/models/campaign_model.dart';
 import '../../data/repositories/campaign_repository.dart';
-import '../../../character_sheet/data/repositories/character_repository_impl.dart'; // Pour charger mes persos
+import '../../../character_sheet/data/repositories/character_repository_impl.dart';
 import '../../../character_sheet/data/models/character_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// 👇 Nouveaux imports pour ouvrir la fiche
 import '../../../character_sheet/presentation/pages/character_sheet_page.dart';
 import '../../../rules_engine/data/repositories/rules_repository_impl.dart';
 
@@ -62,7 +61,6 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
     await _fetchMembers();
     
     if (mounted) setState(() => _isLoading = false);
-
     _checkMyCharacter();
   }
 
@@ -80,24 +78,16 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
     } catch (_) {}
   }
 
+  // --- SÉLECTION PERSO (JOUEUR) ---
   void _checkMyCharacter() {
     if (_currentUserId == null || widget.campaign.role == 'GM') return;
-
-    final myEntry = _members.firstWhere(
-      (m) => m['user_id'].toString() == _currentUserId, 
-      orElse: () => {},
-    );
-
-    if (myEntry.isNotEmpty && myEntry['char_id'] == null) {
-      _showCharacterSelector();
-    }
+    final myEntry = _members.firstWhere((m) => m['user_id'].toString() == _currentUserId, orElse: () => {});
+    if (myEntry.isNotEmpty && myEntry['char_id'] == null) _showCharacterSelector();
   }
 
   void _showCharacterSelector() async {
     final myCharacters = await _charRepo.getAllCharacters();
-
     if (!mounted) return;
-
     showDialog(
       context: context,
       barrierDismissible: false, 
@@ -124,10 +114,6 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
                 },
               ),
         ),
-        actions: [
-          if (myCharacters.isEmpty)
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Je regarderai seulement"))
-        ],
       ),
     );
   }
@@ -138,39 +124,88 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
     _campRepo.sendLog(widget.campaign.id, "a rejoint la table en tant que ${c.name} !");
   }
 
-  // 👇 NOUVELLE FONCTION : OUVRIR MA FICHE DEPUIS LE JEU 👇
   void _openMySheet() async {
     if (_currentUserId == null) return;
-    
-    final myEntry = _members.firstWhere(
-      (m) => m['user_id'].toString() == _currentUserId, 
-      orElse: () => {},
-    );
-
+    final myEntry = _members.firstWhere((m) => m['user_id'].toString() == _currentUserId, orElse: () => {});
     if (myEntry.isEmpty || myEntry['char_data'] == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Aucun personnage sélectionné.")));
       return;
     }
-
-    // Reconstruction du personnage pour l'affichage
-    final character = CharacterModel.fromJson({
-      ...myEntry['char_data'], 
-      'id': myEntry['char_id'], 
-      'name': myEntry['char_name']
-    });
-
+    final character = CharacterModel.fromJson({...myEntry['char_data'], 'id': myEntry['char_id'], 'name': myEntry['char_name']});
     final rules = await RulesRepositoryImpl().loadDefaultRules();
-
     if (mounted) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => CharacterSheetPage(
-          character: character, 
-          rules: rules,
-          campaignId: widget.campaign.id, // 👈 Active le mode "Jeu" avec les dés
-        )),
-      );
+      Navigator.push(context, MaterialPageRoute(builder: (_) => CharacterSheetPage(character: character, rules: rules, campaignId: widget.campaign.id)));
     }
+  }
+
+  // --- ACTIONS MJ (HP) ---
+  void _showGMActionDialog(Map<String, dynamic> member) {
+    final name = member['char_name'];
+    final stats = member['char_data']['stats'] ?? {};
+    int currentHp = stats['hp_current'] ?? 0;
+    int maxHp = stats['hp_max'] ?? 10;
+    
+    final ctrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text("Action sur $name"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("PV: $currentHp / $maxHp", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            TextField(controller: ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Valeur", border: OutlineInputBorder())),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  icon: const Icon(Icons.flash_on),
+                  label: const Text("Dégâts"),
+                  onPressed: () => _applyHPChange(member, -1 * (int.tryParse(ctrl.text) ?? 0), ctx),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                  icon: const Icon(Icons.favorite),
+                  label: const Text("Soins"),
+                  onPressed: () => _applyHPChange(member, (int.tryParse(ctrl.text) ?? 0), ctx),
+                ),
+              ],
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _applyHPChange(Map<String, dynamic> member, int amount, BuildContext dialogContext) async {
+    if (amount == 0) return;
+    Navigator.pop(dialogContext); // Ferme la fenêtre
+
+    final charId = member['char_id'].toString();
+    final stats = member['char_data']['stats'] ?? {};
+    int currentHp = stats['hp_current'] ?? 0;
+    int newHp = currentHp + amount;
+    
+    // 1. Update Serveur
+    await _campRepo.updateMemberStat(widget.campaign.id, charId, 'hp_current', newHp);
+    
+    // 2. Log dans le chat
+    final action = amount < 0 ? "infligé ${-amount} dégâts à" : "rendu $amount PV à";
+    _campRepo.sendLog(widget.campaign.id, "MJ a $action ${member['char_name']} !");
+    
+    // 3. Refresh immédiat pour voir la barre de vie bouger
+    _fetchMembers();
+  }
+
+  // --- ACTIONS GLOBALES ---
+  void _toggleDice(bool value) async {
+    setState(() => _allowDice = value);
+    bool success = await _campRepo.updateSettings(widget.campaign.id, value);
+    if (!success && mounted) setState(() => _allowDice = !value);
   }
 
   void _sendMessage() async {
@@ -201,20 +236,14 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
           ],
         ),
         actions: [
-          // 👇 BOUTON "MA FICHE" (Seulement pour les joueurs)
-          if (!isGM)
-            IconButton(
-              icon: const Icon(Icons.assignment_ind),
-              tooltip: "Ma Fiche",
-              onPressed: _openMySheet,
-            ),
+          // Bouton Joueur : Ma Fiche
+          if (!isGM) IconButton(icon: const Icon(Icons.assignment_ind), tooltip: "Ma Fiche", onPressed: _openMySheet),
+          
+          // Switch MJ : Activer Dés
+          if (isGM) Switch(value: _allowDice, activeThumbColor: Colors.greenAccent, onChanged: _toggleDice),
 
-          Builder(
-            builder: (context) => IconButton(
-              icon: const Icon(Icons.people),
-              onPressed: () => Scaffold.of(context).openEndDrawer(),
-            ),
-          ),
+          // Drawer : Liste des Joueurs
+          Builder(builder: (context) => IconButton(icon: const Icon(Icons.people), onPressed: () => Scaffold.of(context).openEndDrawer())),
         ],
       ),
       endDrawer: Drawer(
@@ -230,30 +259,19 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
                 itemBuilder: (ctx, i) {
                   final m = _members[i];
                   final hasChar = m['char_id'] != null;
-                  
                   final stats = hasChar ? m['char_data']['stats'] : {};
                   final hp = stats != null ? stats['hp_current'] : '?';
-                  final ac = stats != null ? stats['ac'] : '?';
+                  final maxHp = stats != null ? stats['hp_max'] : '?';
 
                   return ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: m['role'] == 'GM' ? Colors.red : Colors.blue,
-                      child: Text(m['username'][0].toUpperCase()),
-                    ),
+                    leading: CircleAvatar(backgroundColor: m['role'] == 'GM' ? Colors.red : Colors.blue, child: Text(m['username'][0].toUpperCase())),
                     title: Text(m['username']),
                     subtitle: Text(hasChar ? "${m['char_name']}" : "Spectateur"),
                     trailing: hasChar 
-                      ? SizedBox(
-                          width: 60,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text("PV: $hp", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-                              Text("CA: $ac", style: const TextStyle(fontSize: 10)),
-                            ],
-                          ),
-                        ) 
+                      ? Text("$hp / $maxHp PV", style: TextStyle(fontWeight: FontWeight.bold, color: (hp is int && hp < 5) ? Colors.red : Colors.green))
                       : null,
+                    // 👇 ACTION MJ : CLIQUE SUR UN JOUEUR POUR LE BLESSER/SOIGNER 👇
+                    onTap: (isGM && hasChar) ? () => _showGMActionDialog(m) : null,
                   );
                 },
               ),
@@ -273,7 +291,6 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
                 final log = _logs[i];
                 final isDice = log['type'] == 'DICE';
                 final isMe = log['user_id'].toString() == _currentUserId;
-                
                 return Align(
                   alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
                   child: Container(
@@ -288,10 +305,8 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(log['username'] ?? '?', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                        if (isDice)
-                          Text("${log['result_value']} (D20)", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))
-                        else
-                          Text(log['content'] ?? ""),
+                        if (isDice) Text("${log['result_value']} (D20)", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))
+                        else Text(log['content'] ?? ""),
                       ],
                     ),
                   ),
