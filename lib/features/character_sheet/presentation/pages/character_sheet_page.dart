@@ -205,7 +205,7 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
               ),
             ),
           );
-        }).toList(),
+        }),
         const SizedBox(height: 20),
         const Text("État", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
         const Divider(),
@@ -247,7 +247,7 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
           const Text("Identité", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
-            value: currentClass,
+            initialValue: currentClass,
             decoration: const InputDecoration(labelText: "Classe", border: OutlineInputBorder()),
             items: validClasses.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
             onChanged: (val) => _updateStat('class', val),

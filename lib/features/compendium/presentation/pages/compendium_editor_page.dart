@@ -83,7 +83,7 @@ class _CompendiumEditorPageState extends State<CompendiumEditorPage> {
             children: [
               // --- TYPE ---
               DropdownButtonFormField<String>(
-                value: _selectedType,
+                initialValue: _selectedType,
                 decoration: const InputDecoration(labelText: "Type de création", border: OutlineInputBorder()),
                 items: const [
                   DropdownMenuItem(value: 'item', child: Text("Objet / Équipement")),

@@ -272,7 +272,10 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
   }
 
   // --- UI ---
-
+//
+  //
+  //
+  //
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -421,13 +424,14 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
                                 )
                               : const Icon(Icons.arrow_forward_ios, size: 14),
                             
-                            onTap: () {
-                              Navigator.push(
+                            onTap: () async {
+                              await Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) => CampaignGamePage(campaign: camp),
                                 ),
                               );
+                              _loadData();
                             },
                           ),
                         );

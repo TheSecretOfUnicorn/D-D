@@ -13,8 +13,13 @@ class TileLayerPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Si l'image n'est pas encore chargée, on ne dessine rien (ou un fond uni)
-    if (tileImage == null) return;
+    // DEBUG VISUEL : Si pas d'image, on dessine un carré ROSE FLUO
+    if (tileImage == null) {
+      final debugPaint = Paint()..color = Colors.pinkAccent;
+      // Dessine un carré dans la première case pour dire "Je suis là mais j'ai pas d'image"
+      canvas.drawRect(Rect.fromLTWH(0, 0, config.cellSize, config.cellSize), debugPaint);
+      return;
+    }
 
     final paint = Paint();
     final double cellSize = config.cellSize;

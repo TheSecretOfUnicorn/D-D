@@ -1,3 +1,5 @@
+// ignore_for_file: unused_field
+
 import 'package:flutter/material.dart';
 import '../painters/grid_painter.dart';
 import '../../domain/models/map_config_model.dart';
@@ -6,7 +8,7 @@ import '../../../../core/utils/image_loader.dart';
 import '../painters/tile_layer_painter.dart';
 
 class MapEditorPage extends StatefulWidget {
-  const MapEditorPage({Key? key}) : super(key: key);
+  const MapEditorPage({super.key});
 
   @override
   State<MapEditorPage> createState() => _MapEditorPageState();
@@ -36,12 +38,23 @@ class _MapEditorPageState extends State<MapEditorPage> {
   }
 
   Future<void> _loadAssets() async {
+    // --- DEBUT CODE DEBUG ---
+    try {
+      // On demande à Flutter la liste de TOUS les assets qu'il connait
+      final manifestContent = await DefaultAssetBundle.of(context).loadString('AssetManifest.json');
+      debugPrint("🔍 RECHERCHE DE 'stone' DANS LES ASSETS...");
+      debugPrint(manifestContent.split(',').where((line) => line.contains('stone')).join('\n'));
+    } catch(e) {
+      debugPrint("⚠️ Impossible de lire le manifeste : $e");
+    }
+
     try {
       // Charge la texture depuis les assets
       final image = await ImageLoader.loadAsset('assets/images/tiles/stone_floor.png');
       setState(() {
         _floorTexture = image;
         _isLoading = false;
+        
       });
     } catch (e) {
       debugPrint("Erreur chargement asset: $e");
@@ -76,31 +89,49 @@ class _MapEditorPageState extends State<MapEditorPage> {
             ),
           ),
 
-          // --- ZONE 2 : CANVAS PRINCIPAL ---
-          Expanded(
-            child: Container(
-              color: const Color(0xFF121212), // Fond hors de la carte
-              // LayoutBuilder pour connaître la taille de la zone disponible
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return InteractiveViewer(
-                    transformationController: _transformationController,
-                    // boundaryMargin: Marge autour de la carte pour scroller "au delà"
-                    boundaryMargin: const EdgeInsets.all(double.infinity),
-                    minScale: 0.1, // Zoom out max
-                    maxScale: 5.0, // Zoom in max
-                    // constrained: false est CRUCIAL.
-                    // Cela dit : "Mon enfant peut être plus grand que moi".
-                    constrained: false,
-                    child: MapCanvasWidget(mapConfig: mapConfig),
-                  );
-                },
-              ),
+            // --- ZONE 2 : CANVAS PRINCIPAL ---
+        Expanded(
+          child: Container(
+            color: const Color(0xFF121212),
+            child: Stack(  // <--- On transforme le LayoutBuilder en Stack ou Column pour tester
+              children: [
+                 // AJOUTE CECI TEMPORAIREMENT :
+                 Positioned(
+                   top: 20, 
+                   left: 20, 
+                   child: Image.asset(
+                     'assets/images/tiles/stone_floor.png', 
+                     width: 100, 
+                     height: 100,
+                     errorBuilder: (c, o, s) => Container(
+                       width: 100, height: 100, color: Colors.red, 
+                       child: const Center(child: Text("ERREUR", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)))
+                     ),
+                   )
+                 ),
+              
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    return InteractiveViewer(
+                      transformationController: _transformationController,
+                      // boundaryMargin: Marge autour de la carte pour scroller "au delà"
+                      boundaryMargin: const EdgeInsets.all(double.infinity),
+                      minScale: 0.1, // Zoom out max
+                      maxScale: 5.0, // Zoom in max
+                      // constrained: false est CRUCIAL.
+                      // Cela dit : "Mon enfant peut être plus grand que moi".
+                      constrained: false,
+                      child: MapCanvasWidget(mapConfig: mapConfig),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
-        ],
-      ),
-    );
+        ),
+          ],
+        )
+      );
   }
 }
 
@@ -109,7 +140,7 @@ class MapCanvasWidget extends StatelessWidget {
   final MapConfig mapConfig;
 
 
-  const MapCanvasWidget({Key? key, required this.mapConfig}) : super(key: key);
+  const MapCanvasWidget({super.key, required this.mapConfig});
   
   ui.Image? get _floorTexture => null;
 
@@ -205,7 +236,7 @@ class GridPainterStub extends CustomPainter {
 }
 
 class PlaceholderObjectLayerStub extends StatelessWidget {
-  const PlaceholderObjectLayerStub({Key? key}) : super(key: key);
+  const PlaceholderObjectLayerStub({super.key});
 
   @override
   Widget build(BuildContext context) {
