@@ -2,17 +2,17 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../domain/models/map_config_model.dart';
-import '../../../../core/utils/hex_utils.dart'; 
+import '/core/utils/hex_utils.dart'; 
 import '../painters/grid_painter.dart';
 import '../painters/tile_layer_painter.dart';
 import '../painters/background_pattern_painter.dart';
 import '../../../../core/utils/image_loader.dart';
 
-// Enum pour savoir quel outil est actif
-enum EditorTool { brush, eraser }
+// 1. DÉFINITION DES OUTILS
+enum EditorTool { move, brush, eraser }
 
 class MapEditorPage extends StatefulWidget {
-  const MapEditorPage({Key? key}) : super(key: key);
+  const MapEditorPage({super.key});
 
   @override
   State<MapEditorPage> createState() => _MapEditorPageState();
@@ -33,11 +33,11 @@ class _MapEditorPageState extends State<MapEditorPage> {
   ui.Image? _floorTexture;
   bool _isLoading = true;
 
-  // --- ÉTAT DE L'ÉDITEUR ---
-  Set<String> _paintedCells = {};      // Les cases peintes
-  EditorTool _selectedTool = EditorTool.brush; // L'outil sélectionné (Pinceau par défaut)
+  // --- ÉTAT ---
+  Set<String> _paintedCells = {};      
+  EditorTool _selectedTool = EditorTool.brush; // Outil par défaut
 
-  // Maths précises
+  // Maths
   double get _hexRadius => mapConfig.cellSize / HexUtils.sqrt3;
 
   @override
@@ -54,53 +54,59 @@ class _MapEditorPageState extends State<MapEditorPage> {
     } catch (e) { debugPrint("⚠️ Erreur Assets: $e"); }
   }
 
-  // --- GESTION DU CLIC SUR LE CANVAS ---
-  void _onCanvasTap(TapUpDetails details) {
-    // 1. On trouve quelle case a été touchée
+  // --- LOGIQUE DE PEINTURE (TAP & GLISSEMENT) ---
+  void _handlePaintAction(Offset localPosition) {
+    // Si on est en mode "Main", on ne peint pas !
+    if (_selectedTool == EditorTool.move) return;
+
     final point = HexUtils.pixelToGrid(
-      details.localPosition, 
+      localPosition, 
       _hexRadius, 
       mapConfig.widthInCells, 
       mapConfig.heightInCells
     );
 
-    // 2. Si le clic est valide (dans la grille)
     if (point.x >= 0 && point.y >= 0) {
       final String key = "${point.x},${point.y}";
-      
-      // On copie le Set pour que Flutter détecte le changement
       final newSet = Set<String>.from(_paintedCells);
       
-      // 3. Action selon l'outil sélectionné
+      bool changed = false;
       if (_selectedTool == EditorTool.brush) {
-        newSet.add(key); // Ajouter (Peindre)
+        if (!newSet.contains(key)) {
+          newSet.add(key);
+          changed = true;
+        }
       } else if (_selectedTool == EditorTool.eraser) {
-        newSet.remove(key); // Enlever (Gommer)
+        if (newSet.contains(key)) {
+          newSet.remove(key);
+          changed = true;
+        }
       }
 
-      setState(() {
-        _paintedCells = newSet;
-      });
+      if (changed) {
+        setState(() {
+          _paintedCells = newSet;
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Calcul de la taille du canvas
     final w = (mapConfig.widthInCells + 0.5) * HexUtils.width(_hexRadius);
     final h = (mapConfig.heightInCells * 0.75 * HexUtils.height(_hexRadius)) + HexUtils.height(_hexRadius);
 
+    // 2. BOOLEEN CRITIQUE : EST-CE QU'ON PEUT BOUGER LA CARTE ?
+    // Seulement si l'outil "Main" est sélectionné.
+    final bool canPanMap = _selectedTool == EditorTool.move;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Éditeur Hexagonal"), 
-        backgroundColor: const Color(0xFF1a1a1a)
-      ),
+      appBar: AppBar(title: const Text("Éditeur Hexagonal"), backgroundColor: const Color(0xFF1a1a1a)),
       backgroundColor: const Color(0xFF121212),
       
-      // --- CORRECTION : ON REMET LE 'ROW' POUR AVOIR LA PALETTE A GAUCHE ---
       body: Row(
         children: [
-          // 1. LA PALETTE D'OUTILS (Gauche)
+          // --- PALETTE D'OUTILS ---
           Container(
             width: 80,
             color: const Color(0xFF252525),
@@ -110,7 +116,17 @@ class _MapEditorPageState extends State<MapEditorPage> {
                 const Text("OUTILS", style: TextStyle(color: Colors.white54, fontSize: 10)),
                 const SizedBox(height: 10),
                 
-                // Bouton PINCEAU
+                // Outil : MAIN (Déplacer)
+                _ToolButton(
+                  icon: Icons.pan_tool,
+                  label: "Bouger",
+                  isSelected: _selectedTool == EditorTool.move,
+                  onTap: () => setState(() => _selectedTool = EditorTool.move),
+                ),
+
+                const SizedBox(height: 10),
+
+                // Outil : PINCEAU
                 _ToolButton(
                   icon: Icons.brush,
                   label: "Peindre",
@@ -120,9 +136,9 @@ class _MapEditorPageState extends State<MapEditorPage> {
                 
                 const SizedBox(height: 10),
                 
-                // Bouton GOMME
+                // Outil : GOMME
                 _ToolButton(
-                  icon: Icons.cleaning_services, // ou Icons.delete
+                  icon: Icons.cleaning_services,
                   label: "Gommer",
                   isSelected: _selectedTool == EditorTool.eraser,
                   onTap: () => setState(() => _selectedTool = EditorTool.eraser),
@@ -131,18 +147,30 @@ class _MapEditorPageState extends State<MapEditorPage> {
             ),
           ),
 
-          // 2. LE CANVAS (Droite - Expanded)
+          // --- ZONE DE CARTE ---
           Expanded(
             child: Container(
-              color: const Color(0xFF121212), // Fond de la zone de travail
+              color: const Color(0xFF121212),
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   return InteractiveViewer(
                     transformationController: _transformationController,
                     boundaryMargin: const EdgeInsets.all(double.infinity),
                     minScale: 0.1, maxScale: 5.0, constrained: false,
+                    
+                    // 3. LA CLÉ DU SUCCÈS EST ICI 👇
+                    // Si on peint, on désactive le Pan (déplacement) de l'InteractiveViewer
+                    panEnabled: canPanMap, 
+                    scaleEnabled: canPanMap, // On désactive aussi le zoom pour éviter les conflits
+
                     child: GestureDetector(
-                      onTapUp: _onCanvasTap, // C'est ici que ça se passe !
+                      // On écoute le TAP (clic simple)
+                      onTapUp: (details) => _handlePaintAction(details.localPosition),
+                      
+                      // On écoute aussi le GLISSEMENT (Peindre en continu !)
+                      // Cela ne marche que si panEnabled est FALSE (donc en mode Pinceau)
+                      onPanUpdate: (details) => _handlePaintAction(details.localPosition),
+
                       child: MapCanvasWidget(
                         mapConfig: mapConfig,
                         floorTexture: _floorTexture,
@@ -162,14 +190,14 @@ class _MapEditorPageState extends State<MapEditorPage> {
   }
 }
 
-// Petit Widget helper pour les boutons de la palette
+// Widget Bouton Outil
 class _ToolButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool isSelected;
   final VoidCallback onTap;
 
-  const _ToolButton({Key? key, required this.icon, required this.label, required this.isSelected, required this.onTap}) : super(key: key);
+  const _ToolButton({required this.icon, required this.label, required this.isSelected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -195,7 +223,6 @@ class _ToolButton extends StatelessWidget {
   }
 }
 
-// Le Widget Canvas (Identique à avant)
 class MapCanvasWidget extends StatelessWidget {
   final MapConfig mapConfig;
   final ui.Image? floorTexture;
@@ -203,31 +230,25 @@ class MapCanvasWidget extends StatelessWidget {
   final Set<String> paintedCells;
   final double hexRadius;
 
-  const MapCanvasWidget({Key? key, required this.mapConfig, this.floorTexture, this.parchmentTexture, required this.paintedCells, required this.hexRadius}) : super(key: key);
+  const MapCanvasWidget({super.key, required this.mapConfig, this.floorTexture, this.parchmentTexture, required this.paintedCells, required this.hexRadius});
 
   @override
   Widget build(BuildContext context) {
-    // Calcul de la taille (Nécessaire pour le scroll)
     final w = (mapConfig.widthInCells + 0.5) * HexUtils.width(hexRadius);
     final h = (mapConfig.heightInCells * 0.75 * HexUtils.height(hexRadius)) + HexUtils.height(hexRadius);
 
     return Container(
       width: w, height: h,
-      decoration: BoxDecoration(boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 20)]),
+      decoration: const BoxDecoration(boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 20)]),
       child: Stack(
         children: [
-          // Layer 0 : Fond
           Positioned.fill(child: CustomPaint(painter: BackgroundPatternPainter(backgroundColor: mapConfig.backgroundColor, patternImage: parchmentTexture))),
-          
-          // Layer 1 : Tuiles (Avec le correctif de tri Z-Index)
           RepaintBoundary(
             child: CustomPaint(
               size: Size(w, h),
               painter: TileLayerPainter(config: mapConfig, tileImage: floorTexture, paintedCells: paintedCells, radius: hexRadius),
             ),
           ),
-          
-          // Layer 2 : Grille
           IgnorePointer(child: CustomPaint(size: Size(w, h), painter: GridPainter(config: mapConfig, radius: hexRadius))),
         ],
       ),
