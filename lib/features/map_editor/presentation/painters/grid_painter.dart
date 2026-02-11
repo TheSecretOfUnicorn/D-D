@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import '../../domain/models/map_config_model.dart';
-import '../../../../core/utils/hex_utils.dart';
+import '/core/utils/hex_utils.dart';
 
 class GridPainter extends CustomPainter {
   final MapConfig config;
-  final double radius; // <--- CHAMP REQUIS
+  final double radius;
+  final Offset offset; // AJOUT
 
   GridPainter({
     required this.config, 
-    required this.radius // <--- CONSTRUCTEUR REQUIS
+    required this.radius,
+    required this.offset, // Requis
   });
 
   @override
@@ -20,6 +22,10 @@ class GridPainter extends CustomPainter {
 
     final hexPath = HexUtils.getHexPath(radius);
 
+    // 1. APPLIQUER LA MARGE GLOBALE
+    canvas.save();
+    canvas.translate(offset.dx, offset.dy);
+
     for (int r = 0; r < config.heightInCells; r++) {
       for (int c = 0; c < config.widthInCells; c++) {
         final center = HexUtils.gridToPixel(c, r, radius);
@@ -30,10 +36,13 @@ class GridPainter extends CustomPainter {
         canvas.restore();
       }
     }
+
+    // On restaure le translate global
+    canvas.restore();
   }
 
   @override
   bool shouldRepaint(covariant GridPainter oldDelegate) {
-    return config != oldDelegate.config || radius != oldDelegate.radius;
+    return config != oldDelegate.config || radius != oldDelegate.radius || offset != oldDelegate.offset;
   }
 }

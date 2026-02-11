@@ -204,4 +204,52 @@ class CampaignRepository {
       return false;
     }
   }
+/// MJ : Passe au tour suivant
+  Future<bool> nextTurn(int campaignId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.post(
+        Uri.parse("$baseUrl/campaigns/$campaignId/combat/next"),
+        headers: headers,
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// MJ : Met fin au combat
+  Future<bool> stopCombat(int campaignId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.post(
+        Uri.parse("$baseUrl/campaigns/$campaignId/combat/stop"),
+        headers: headers,
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+/// MJ : Ajoute un monstre/PNJ au combat
+  Future<bool> addParticipant(int campaignId, String name, int hp, int? initiative) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.post(
+        Uri.parse("$baseUrl/campaigns/$campaignId/combat/add"),
+        headers: headers,
+        body: jsonEncode({
+          "name": name,
+          "hp": hp,
+          "initiative": initiative // Peut être null (le serveur lancera le dé)
+        }),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      Log.error("Erreur addParticipant", e);
+      return false;
+    }
+  }
+
+
 }

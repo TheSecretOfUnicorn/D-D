@@ -2,7 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 class HexUtils {
-  // La seule valeur exacte pour éviter la dérive
+  // Précision mathématique
   static final double sqrt3 = sqrt(3);
 
   static double width(double radius) => sqrt3 * radius;
@@ -11,9 +11,7 @@ class HexUtils {
   static Offset gridToPixel(int col, int row, double radius) {
     final w = width(radius);
     final h = height(radius);
-    // Décalage une ligne sur deux
     double x = (col * w) + ((row % 2) * (w / 2));
-    // Chevauchement vertical (3/4 de la hauteur)
     double y = row * (h * 0.75);
     return Offset(x + w / 2, y + h / 2);
   }
@@ -21,9 +19,18 @@ class HexUtils {
   static Path getHexPath(double radius) {
     final path = Path();
     for (int i = 0; i < 6; i++) {
-      // 30° = Pointe en haut (Côtés verticaux plats)
       double angleRad = (pi / 180) * (60.0 * i + 30);
-      path.lineTo(radius * cos(angleRad), radius * sin(angleRad));
+      final x = radius * cos(angleRad);
+      final y = radius * sin(angleRad);
+      
+      // --- CORRECTION CRITIQUE ---
+      // Pour le premier point (i=0), on LEVE le crayon (moveTo) pour aller au point de départ.
+      // Sinon, certains moteurs tracent une ligne parasite depuis le centre (0,0).
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
     }
     path.close();
     return path;
@@ -32,7 +39,6 @@ class HexUtils {
   static Point<int> pixelToGrid(Offset localPosition, double radius, int maxCols, int maxRows) {
     Point<int>? bestPoint;
     double minDistance = double.infinity;
-    // Recherche brute simple et fiable
     for (int r = 0; r < maxRows; r++) {
       for (int c = 0; c < maxCols; c++) {
         final center = gridToPixel(c, r, radius);
