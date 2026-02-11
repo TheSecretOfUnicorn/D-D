@@ -114,18 +114,21 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
     _loadData();
   }
 
-  // --- IMPORT ---
+// --- IMPORT ---
   void _importCharacter() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     
+    // Vérification contextuelle simple au début
+    if (!mounted) return;
+    
     if (data == null || data.text == null || data.text!.isEmpty) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Presse-papier vide")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Presse-papier vide")));
       return;
     }
 
     final newChar = _sharingService.importCharacter(data.text!);
 
-    if (newChar != null && mounted) {
+    if (newChar != null) {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -146,19 +149,15 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
             ElevatedButton(
               onPressed: () async {
-                // 1. On attend la sauvegarde
+                // 1. Sauvegarde asynchrone
                 await _charRepo.saveCharacter(newChar);
                 
-                // 2. SÉCURITÉ : On vérifie si la page est toujours là
-                if (!context.mounted) return; 
+                // 🛑 CORRECTION CRITIQUE : Vérifier si le widget est toujours monté
+                if (!ctx.mounted) return; // On vérifie le contexte du Dialog (ctx)
+                Navigator.pop(ctx); // On ferme le Dialog
 
-                // 3. On ferme le dialogue
-                Navigator.pop(ctx);
-                
-                // 4. On recharge les données
-                _loadData();
-                
-                // 5. On affiche le message (safe maintenant)
+                if (!mounted) return; // On vérifie le contexte de la Page (this)
+                _loadData(); // Recharger les données
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Personnage importé !")));
               },
               child: const Text("Confirmer"),
@@ -166,8 +165,8 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
           ],
         ),
       );
-    }else {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Format JSON invalide")));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Format JSON invalide")));
     }
   }
 

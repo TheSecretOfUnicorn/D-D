@@ -3,7 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart' show Share;
 import '../../features/character_sheet/data/models/character_model.dart';
 import '../utils/logger_service.dart';
-// Vérifiez bien cette ligne : class DataSharingService
+
+
 class DataSharingService {
   
   String exportCharacter(CharacterModel char) {

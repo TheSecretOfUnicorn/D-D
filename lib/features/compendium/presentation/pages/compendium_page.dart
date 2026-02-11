@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-// 👇 Assure-toi que ce chemin est correct vers ton repository
 import '../../data/repositories/compendium_repository.dart';
 import '../../presentation/pages/compendium_editor_page.dart';
-import '/core/utils/logger_service.dart';
 
 class CompendiumPage extends StatefulWidget {
-  final String? campaignId; // Optionnel : pour filtrer par campagne
+  final String? campaignId;
 
   const CompendiumPage({super.key, this.campaignId});
 
@@ -14,11 +12,9 @@ class CompendiumPage extends StatefulWidget {
 }
 
 class _CompendiumPageState extends State<CompendiumPage> with SingleTickerProviderStateMixin {
-  // 1. LE MOTEUR : On instancie le repository
   final CompendiumRepository _compendiumRepo = CompendiumRepository();
   late TabController _tabController;
 
-  // Listes pour stocker les données reçues de la BDD
   List<Map<String, dynamic>> _items = [];
   List<Map<String, dynamic>> _spells = [];
   bool _isLoading = true;
@@ -27,18 +23,13 @@ class _CompendiumPageState extends State<CompendiumPage> with SingleTickerProvid
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    // 2. LE DÉMARRAGE : On charge les données dès l'ouverture
     _loadData();
   }
 
-  // Fonction pour récupérer les données depuis le serveur Node.js
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    
     try {
-      // On appelle le repo avec l'ID de campagne (ou null pour global)
       final data = await _compendiumRepo.fetchFullCompendium(widget.campaignId);
-      
       if (mounted) {
         setState(() {
           _items = data['items']!;
@@ -47,14 +38,11 @@ class _CompendiumPageState extends State<CompendiumPage> with SingleTickerProvid
         });
       }
     } catch (e) {
-      Log.error("Erreur chargement compendium", e);
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // 3. LA SUPPRESSION : Fonction appelée par le bouton poubelle
   Future<void> _deleteEntry(int id, String name) async {
-    // Demande de confirmation
     bool? confirm = await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -68,18 +56,17 @@ class _CompendiumPageState extends State<CompendiumPage> with SingleTickerProvid
     );
 
     if (confirm == true) {
-      // Appel au serveur pour supprimer
       bool success = await _compendiumRepo.deleteEntry(id);
+      
+      // Ici on est dans une méthode de la classe State, donc 'mounted' (this.mounted) 
+      // protège correctement 'context' (this.context).
+      if (!mounted) return;
+
       if (success) {
-        // Si ça a marché, on recharge la liste pour voir le changement
         _loadData();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Élément supprimé !")));
-        }
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Élément supprimé !")));
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Erreur lors de la suppression.")));
-        }
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Erreur lors de la suppression.")));
       }
     }
   }
@@ -107,8 +94,13 @@ class _CompendiumPageState extends State<CompendiumPage> with SingleTickerProvid
           );
           
           if (result == true) {
-            // Petit délai technique + Rechargement
             await Future.delayed(const Duration(milliseconds: 300));
+            
+            // 🛑 CORRECTION ICI :
+            // Dans build, 'context' est un argument local.
+            // Le linter exige qu'on vérifie 'context.mounted' et non 'this.mounted'.
+            if (!context.mounted) return;
+
             _loadData();
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Élément ajouté !")));
           }
@@ -126,7 +118,6 @@ class _CompendiumPageState extends State<CompendiumPage> with SingleTickerProvid
     );
   }
 
-  // Widget générique pour afficher une liste (Objets ou Sorts)
   Widget _buildList(List<Map<String, dynamic>> list, IconData icon, Color color) {
     if (list.isEmpty) {
       return Center(
@@ -149,18 +140,16 @@ class _CompendiumPageState extends State<CompendiumPage> with SingleTickerProvid
         itemCount: list.length,
         itemBuilder: (context, index) {
           final entry = list[index];
-          // On sécurise l'ID (parfois il vient en String ou int selon la DB)
           final int id = int.tryParse(entry['id'].toString()) ?? 0;
 
           return Card(
             child: ListTile(
               leading: CircleAvatar(
-                backgroundColor: color.withAlpha(52), // 51 = 20% de transparence sur 255
+                backgroundColor: color.withAlpha(51),
                 child: Icon(icon, color: color),
               ),
               title: Text(entry['name'] ?? "Inconnu", style: const TextStyle(fontWeight: FontWeight.bold)),
               subtitle: Text(entry['desc'] ?? entry['description'] ?? "Pas de description"),
-              // 👇 LE fameux BOUTON DE SUPPRESSION
               trailing: IconButton(
                 icon: const Icon(Icons.delete, color: Colors.grey),
                 onPressed: () => _deleteEntry(id, entry['name']),

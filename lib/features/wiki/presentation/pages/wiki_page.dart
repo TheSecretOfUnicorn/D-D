@@ -284,6 +284,7 @@ class _NoteEditorPage extends StatefulWidget {
 class _NoteEditorPageState extends State<_NoteEditorPage> {
   late TextEditingController _titleController;
   late TextEditingController _contentController;
+  // ignore: unused_field
   bool _hasChanged = false;
 
   @override

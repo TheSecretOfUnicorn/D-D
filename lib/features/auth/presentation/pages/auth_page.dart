@@ -21,13 +21,12 @@ class _AuthPageState extends State<AuthPage> {
 
   // --- ACTIONS ---
 
-  void _login() async {
+ void _login() async {
     setState(() => _isLoading = true);
     try {
       final success = await _authRepo.login(_userController.text, _codeController.text);
       
-      // 🛑 SÉCURITÉ : Stop si la page est fermée
-      if (!mounted) return;
+      if (!mounted) return; // 🛑 SÉCURITÉ AJOUTÉE
 
       if (success) {
         Navigator.pushReplacement(
@@ -38,7 +37,7 @@ class _AuthPageState extends State<AuthPage> {
         _showError("Code invalide ou utilisateur inconnu");
       }
     } catch (e) {
-      if (mounted) _showError(e.toString());
+      if (mounted) _showError(e.toString()); // 🛑 SÉCURITÉ AJOUTÉE
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -49,8 +48,7 @@ class _AuthPageState extends State<AuthPage> {
     try {
       final data = await _authRepo.register(_userController.text);
       
-      // 🛑 SÉCURITÉ : Stop si la page est fermée
-      if (!mounted) return;
+      if (!mounted) return; // 🛑 SÉCURITÉ AJOUTÉE
 
       setState(() {
         String rawImg = data['qr_code'];
@@ -58,7 +56,7 @@ class _AuthPageState extends State<AuthPage> {
         _manualSecret = data['manual_secret'];
       });
     } catch (e) {
-      if (mounted) _showError(e.toString());
+      if (mounted) _showError(e.toString()); // 🛑 SÉCURITÉ AJOUTÉE
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
