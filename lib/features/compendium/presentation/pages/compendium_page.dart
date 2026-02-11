@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 // 👇 Assure-toi que ce chemin est correct vers ton repository
 import '../../data/repositories/compendium_repository.dart';
 import '../../presentation/pages/compendium_editor_page.dart';
-
+import '/core/utils/logger_service.dart';
 
 class CompendiumPage extends StatefulWidget {
   final String? campaignId; // Optionnel : pour filtrer par campagne
@@ -47,7 +47,7 @@ class _CompendiumPageState extends State<CompendiumPage> with SingleTickerProvid
         });
       }
     } catch (e) {
-      print("Erreur chargement: $e");
+      Log.error("Erreur chargement compendium", e);
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -155,7 +155,7 @@ class _CompendiumPageState extends State<CompendiumPage> with SingleTickerProvid
           return Card(
             child: ListTile(
               leading: CircleAvatar(
-                backgroundColor: color.withOpacity(0.2),
+                backgroundColor: color.withAlpha(52), // 51 = 20% de transparence sur 255
                 child: Icon(icon, color: color),
               ),
               title: Text(entry['name'] ?? "Inconnu", style: const TextStyle(fontWeight: FontWeight.bold)),

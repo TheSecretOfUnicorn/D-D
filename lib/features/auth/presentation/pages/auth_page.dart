@@ -25,18 +25,20 @@ class _AuthPageState extends State<AuthPage> {
     setState(() => _isLoading = true);
     try {
       final success = await _authRepo.login(_userController.text, _codeController.text);
+      
+      // 🛑 SÉCURITÉ : Stop si la page est fermée
+      if (!mounted) return;
+
       if (success) {
-        if (mounted) {
-          Navigator.pushReplacement(
-            context, 
-            MaterialPageRoute(builder: (_) => const CampaignDashboardPage())
-          );
-        }
+        Navigator.pushReplacement(
+          context, 
+          MaterialPageRoute(builder: (_) => const CampaignDashboardPage())
+        );
       } else {
         _showError("Code invalide ou utilisateur inconnu");
       }
     } catch (e) {
-      _showError(e.toString());
+      if (mounted) _showError(e.toString());
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -46,15 +48,17 @@ class _AuthPageState extends State<AuthPage> {
     setState(() => _isLoading = true);
     try {
       final data = await _authRepo.register(_userController.text);
+      
+      // 🛑 SÉCURITÉ : Stop si la page est fermée
+      if (!mounted) return;
+
       setState(() {
-        // L'API renvoie "data:image/png;base64,....."
-        // On doit nettoyer la string pour Flutter
         String rawImg = data['qr_code'];
         _qrCodeBase64 = rawImg.split(',').last; 
         _manualSecret = data['manual_secret'];
       });
     } catch (e) {
-      _showError(e.toString());
+      if (mounted) _showError(e.toString());
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

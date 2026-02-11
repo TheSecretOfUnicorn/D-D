@@ -31,7 +31,6 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
   Timer? _refreshTimer;
   late bool _allowDice;
   String? _currentUserId;
-  bool _isLoading = true;
 
   @override
   void initState() {
@@ -60,7 +59,6 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
     await _fetchLogs();
     await _fetchMembers();
     
-    if (mounted) setState(() => _isLoading = false);
     _checkMyCharacter();
   }
 

@@ -19,8 +19,8 @@ class HexUtils {
   static Path getHexPath(double radius) {
     final path = Path();
     for (int i = 0; i < 6; i++) {
-      double angle_rad = (pi / 180) * (60.0 * i + 30);
-      path.lineTo(radius * cos(angle_rad), radius * sin(angle_rad));
+      double angleRad = (pi / 180) * (60.0 * i + 30);
+      path.lineTo(radius * cos(angleRad), radius * sin(angleRad));
     }
     path.close();
     return path;

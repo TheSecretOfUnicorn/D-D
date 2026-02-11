@@ -11,7 +11,7 @@ import '../../../../core/utils/image_loader.dart';
 
 
 class MapEditorPage extends StatefulWidget {
-  const MapEditorPage({Key? key}) : super(key: key);
+  const MapEditorPage({super.key});
 
   @override
   State<MapEditorPage> createState() => _MapEditorPageState();
@@ -30,7 +30,6 @@ class _MapEditorPageState extends State<MapEditorPage> {
   
   ui.Image? _parchmentTexture;
   ui.Image? _floorTexture;
-  bool _isLoading = true;
 
   // CORRECTION 1 : On utilise un Set qu'on remplacera à chaque fois
   Set<String> _paintedCells = {};
@@ -48,7 +47,7 @@ class _MapEditorPageState extends State<MapEditorPage> {
     try {
       final parchment = await ImageLoader.loadAsset('assets/images/ui/parchment_bg.png');
       final floor = await ImageLoader.loadAsset('assets/images/tiles/stone_floor.png');
-      if (mounted) setState(() { _parchmentTexture = parchment; _floorTexture = floor; _isLoading = false; });
+      if (mounted) setState(() { _parchmentTexture = parchment; _floorTexture = floor; });
     } catch (e) { debugPrint("⚠️ Erreur Assets: $e"); }
   }
 
@@ -112,7 +111,7 @@ class MapCanvasWidget extends StatelessWidget {
   final Set<String> paintedCells;
   final double hexRadius;
 
-  const MapCanvasWidget({Key? key, required this.mapConfig, this.floorTexture, this.parchmentTexture, required this.paintedCells, required this.hexRadius}) : super(key: key);
+  const MapCanvasWidget({super.key, required this.mapConfig, this.floorTexture, this.parchmentTexture, required this.paintedCells, required this.hexRadius});
 
   @override
   Widget build(BuildContext context) {
@@ -121,7 +120,7 @@ class MapCanvasWidget extends StatelessWidget {
 
     return Container(
       width: w, height: h,
-      decoration: BoxDecoration(boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 20)]),
+      decoration: const BoxDecoration(boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 20)]),
       child: Stack(
         children: [
           Positioned.fill(child: CustomPaint(painter: BackgroundPatternPainter(backgroundColor: mapConfig.backgroundColor, patternImage: parchmentTexture))),

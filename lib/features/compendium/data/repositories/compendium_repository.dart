@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '/core/utils/logger_service.dart';
 
 class CompendiumRepository {
   // ⚠️ Remplace par ton IP locale (ex: 10.0.2.2 pour émulateur Android, ou ton IP LAN)
@@ -43,11 +44,11 @@ class CompendiumRepository {
           'spells': spells,
         };
       } else {
-        print("Erreur serveur: ${response.statusCode}");
+        Log.error("Erreur serveur compendium (${response.statusCode}): ${response.body}");
         return {'items': [], 'spells': []};
       }
     } catch (e) {
-      print("Erreur connexion compendium: $e");
+      Log.error("Exception fetchFullCompendium", e);
       return {'items': [], 'spells': []};
     }
   }
@@ -78,11 +79,11 @@ class CompendiumRepository {
       if (response.statusCode == 200) {
         return true;
       } else {
-        print("Erreur création: ${response.body}");
+        Log.error("Erreur création entrée compendium: ${response.body}");
         return false;
       }
     } catch (e) {
-      print("Erreur réseau création: $e");
+      Log.error("Exception addEntry", e);
       return false;
     }
   }
@@ -97,11 +98,11 @@ class CompendiumRepository {
       if (response.statusCode == 200) {
         return true;
       } else {
-        print("Erreur suppression: ${response.body}");
+        Log.error("Erreur suppression entrée compendium (${response.statusCode}): ${response.body}");
         return false;
       }
     } catch (e) {
-      print("Erreur réseau suppression: $e");
+      Log.error("Exception deleteEntry", e);
       return false;
     }
   }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/note_model.dart';
+import '../../../../core/utils/logger_service.dart';
 
 class NotesRepository {
   static const String _storageKey = 'campaign_notes_list';
@@ -23,7 +24,8 @@ class NotesRepository {
       final List<dynamic> list = jsonDecode(encoded);
       return list.map((e) => NoteModel.fromJson(e)).toList();
     } catch (e) {
-      print("Erreur chargement notes: $e");
+
+      Log.error("Exception loadNotes", e);
       return [];
     }
   }

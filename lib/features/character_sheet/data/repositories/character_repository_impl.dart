@@ -2,10 +2,14 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/character_model.dart';
+import '../../../../core/utils/logger_service.dart';
+
 
 class CharacterRepositoryImpl {
   // ⚠️ Ton URL Serveur (sans slash à la fin)
   final String baseUrl = "http://sc2tphk4284.universe.wf/api_jdr";
+  
+  get log => Log;
 
   Future<Map<String, String>> _getHeaders() async {
     final prefs = await SharedPreferences.getInstance();
@@ -30,7 +34,7 @@ class CharacterRepositoryImpl {
         return [];
       }
     } catch (e) {
-      print("Erreur Cloud: $e");
+      log.error("Erreur getAllCharacters", e);
       return [];
     }
   }

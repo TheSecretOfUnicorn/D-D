@@ -146,9 +146,19 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
             ElevatedButton(
               onPressed: () async {
+                // 1. On attend la sauvegarde
                 await _charRepo.saveCharacter(newChar);
+                
+                // 2. SÉCURITÉ : On vérifie si la page est toujours là
+                if (!context.mounted) return; 
+
+                // 3. On ferme le dialogue
                 Navigator.pop(ctx);
+                
+                // 4. On recharge les données
                 _loadData();
+                
+                // 5. On affiche le message (safe maintenant)
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Personnage importé !")));
               },
               child: const Text("Confirmer"),
@@ -156,7 +166,7 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
           ],
         ),
       );
-    } else {
+    }else {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Format JSON invalide")));
     }
   }

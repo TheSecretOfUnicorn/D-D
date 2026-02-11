@@ -106,10 +106,10 @@ class _DynamicListWidgetState extends State<DynamicListWidget> {
                         return TextField(
                           controller: textController,
                           focusNode: focusNode,
-                          decoration: InputDecoration(
+                          decoration: const InputDecoration(
                             labelText: "Nom (Rechercher...)", 
-                            border: const OutlineInputBorder(), 
-                            suffixIcon: const Icon(Icons.search)
+                            border: OutlineInputBorder(), 
+                            suffixIcon: Icon(Icons.search)
                           ),
                         );
                       },

@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart' show Share;
 import '../../features/character_sheet/data/models/character_model.dart';
-
+import '../utils/logger_service.dart';
 // Vérifiez bien cette ligne : class DataSharingService
 class DataSharingService {
   
@@ -29,7 +29,7 @@ class DataSharingService {
       }
       return CharacterModel.fromJson(map);
     } catch (e) {
-      print("Erreur d'import : $e");
+      Log.error("Erreur d'import : $e");
       return null;
     }
   }

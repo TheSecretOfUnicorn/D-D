@@ -1,7 +1,7 @@
 import 'dart:convert'; // Pour jsonDecode
 import 'package:flutter/services.dart'; // Pour rootBundle
 import '../models/rule_system_model.dart';
-
+import '/core/utils/logger_service.dart';
 class RulesRepositoryImpl {
   
   /// Charge le système de règles par défaut depuis les assets
@@ -18,7 +18,7 @@ class RulesRepositoryImpl {
       
     } catch (e) {
       // En prod, on utiliserait un Logger ici
-      print("Erreur lors du chargement des règles : $e");
+      Log.error("Erreur lors du chargement des règles", e);
       rethrow; 
     }
   }

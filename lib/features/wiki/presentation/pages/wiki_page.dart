@@ -179,14 +179,12 @@ class _WikiPageState extends State<WikiPage> {
       return a.title.toLowerCase().compareTo(b.title.toLowerCase());
     });
 
-    return WillPopScope(
-      onWillPop: () async {
-        if (_breadcrumbs.isNotEmpty) {
-          _goBack();
-          return false;
-        }
-        return true;
-      },
+    return PopScope(
+        canPop: false, // Bloque le retour arrière automatique
+          onPopInvokedWithResult: (didPop, result) {
+             if (didPop) return; // Si le système a déjà géré le retour, on ne fait rien
+    // Votre logique ici (ex: Afficher dialogue "Voulez-vous quitter ?")
+  },
       child: Scaffold(
         appBar: AppBar(
           title: Text(_breadcrumbs.isEmpty ? "Wiki Campagne" : _breadcrumbs.last.title),
@@ -195,10 +193,10 @@ class _WikiPageState extends State<WikiPage> {
               : null,
         ),
         body: currentItems.isEmpty 
-            ? Center(
+            ? const Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
+                  children: [
                     Icon(Icons.folder_open, size: 64, color: Colors.grey),
                     SizedBox(height: 16),
                     Text("Dossier vide", style: TextStyle(color: Colors.grey)),
@@ -314,13 +312,11 @@ class _NoteEditorPageState extends State<_NoteEditorPage> {
         ],
       ),
       // WillPopScope pour prévenir si on quitte sans sauver
-      body: WillPopScope(
-        onWillPop: () async {
-          if (_hasChanged) {
-            _save(); // Sauvegarde auto en quittant (optionnel, mais pratique)
-          }
-          return true;
-        },
+      body: PopScope(
+        canPop: false, // Bloque le retour arrière automatique
+        onPopInvokedWithResult: (didPop, result) { if (didPop) return; // Si le système a déjà géré le retour, on ne fait rien
+    // Votre logique ici (ex: Afficher dialogue "Voulez-vous quitter ?")
+},
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
