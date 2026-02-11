@@ -10,7 +10,6 @@ import '../../../character_sheet/presentation/pages/character_sheet_page.dart';
 import '../../../rules_engine/data/models/rule_system_model.dart';
 import '../../../rules_engine/data/repositories/rules_repository_impl.dart';
 import '../../../compendium/presentation/pages/compendium_page.dart';
-import '../../../combat/presentation/pages/combat_page.dart';
 import '../../../wiki/presentation/pages/wiki_page.dart';
 import 'campaign_game_page.dart';
 
@@ -322,7 +321,9 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
           IconButton(
             icon: const Icon(Icons.flash_on),
             tooltip: "Combat Tracker",
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CombatPage(characters: _characters))),
+            onPressed: () {
+               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Entrez dans une campagne pour gérer le combat !")));
+            },
           ),
         ],
       ),

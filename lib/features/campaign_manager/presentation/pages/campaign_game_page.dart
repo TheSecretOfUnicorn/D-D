@@ -1,14 +1,16 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../data/models/campaign_model.dart';
 import '../../data/repositories/campaign_repository.dart';
 import '../../../character_sheet/data/repositories/character_repository_impl.dart';
 import '../../../character_sheet/data/models/character_model.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
 import '../../../character_sheet/presentation/pages/character_sheet_page.dart';
 import '../../../rules_engine/data/repositories/rules_repository_impl.dart';
+// 👇 IMPORT IMPORTANT POUR LE COMBAT
+import '../../../combat/presentation/pages/combat_page.dart';
 
 class CampaignGamePage extends StatefulWidget {
   final CampaignModel campaign;
@@ -37,7 +39,6 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
     super.initState();
     _allowDice = widget.campaign.allowDice;
     _initSession();
-    
     _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _fetchLogs();
       _fetchMembers();
@@ -55,10 +56,8 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
   Future<void> _initSession() async {
     final prefs = await SharedPreferences.getInstance();
     _currentUserId = prefs.get('user_id')?.toString();
-    
     await _fetchLogs();
     await _fetchMembers();
-    
     _checkMyCharacter();
   }
 
@@ -76,7 +75,6 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
     } catch (_) {}
   }
 
-  // --- SÉLECTION PERSO (JOUEUR) ---
   void _checkMyCharacter() {
     if (_currentUserId == null || widget.campaign.role == 'GM') return;
     final myEntry = _members.firstWhere((m) => m['user_id'].toString() == _currentUserId, orElse: () => {});
@@ -136,13 +134,11 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
     }
   }
 
-  // --- ACTIONS MJ (HP) ---
   void _showGMActionDialog(Map<String, dynamic> member) {
     final name = member['char_name'];
     final stats = member['char_data']['stats'] ?? {};
     int currentHp = stats['hp_current'] ?? 0;
     int maxHp = stats['hp_max'] ?? 10;
-    
     final ctrl = TextEditingController();
 
     showDialog(
@@ -154,7 +150,7 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
           children: [
             Text("PV: $currentHp / $maxHp", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
-            TextField(controller: ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Valeur", border: OutlineInputBorder())),
+            TextField(controller: ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Valeur")),
             const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -181,25 +177,17 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
 
   void _applyHPChange(Map<String, dynamic> member, int amount, BuildContext dialogContext) async {
     if (amount == 0) return;
-    Navigator.pop(dialogContext); // Ferme la fenêtre
-
+    Navigator.pop(dialogContext);
     final charId = member['char_id'].toString();
     final stats = member['char_data']['stats'] ?? {};
     int currentHp = stats['hp_current'] ?? 0;
     int newHp = currentHp + amount;
-    
-    // 1. Update Serveur
     await _campRepo.updateMemberStat(widget.campaign.id, charId, 'hp_current', newHp);
-    
-    // 2. Log dans le chat
     final action = amount < 0 ? "infligé ${-amount} dégâts à" : "rendu $amount PV à";
     _campRepo.sendLog(widget.campaign.id, "MJ a $action ${member['char_name']} !");
-    
-    // 3. Refresh immédiat pour voir la barre de vie bouger
     _fetchMembers();
   }
 
-  // --- ACTIONS GLOBALES ---
   void _toggleDice(bool value) async {
     setState(() => _allowDice = value);
     bool success = await _campRepo.updateSettings(widget.campaign.id, value);
@@ -234,13 +222,22 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
           ],
         ),
         actions: [
-          // Bouton Joueur : Ma Fiche
+          // 1. Bouton Joueur : Ma Fiche
           if (!isGM) IconButton(icon: const Icon(Icons.assignment_ind), tooltip: "Ma Fiche", onPressed: _openMySheet),
           
-          // Switch MJ : Activer Dés
+          // 2. 👇 BOUTON COMBAT (Le Nouveau !)
+          IconButton(
+            icon: const Icon(Icons.flash_on, color: Colors.orangeAccent),
+            tooltip: "Combat Tracker",
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => CombatPage(campaignId: widget.campaign.id, isGM: isGM)));
+            },
+          ),
+
+          // 3. Switch MJ : Activer Dés
           if (isGM) Switch(value: _allowDice, activeThumbColor: Colors.greenAccent, onChanged: _toggleDice),
 
-          // Drawer : Liste des Joueurs
+          // 4. Drawer : Liste des Joueurs
           Builder(builder: (context) => IconButton(icon: const Icon(Icons.people), onPressed: () => Scaffold.of(context).openEndDrawer())),
         ],
       ),
@@ -260,15 +257,11 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
                   final stats = hasChar ? m['char_data']['stats'] : {};
                   final hp = stats != null ? stats['hp_current'] : '?';
                   final maxHp = stats != null ? stats['hp_max'] : '?';
-
                   return ListTile(
                     leading: CircleAvatar(backgroundColor: m['role'] == 'GM' ? Colors.red : Colors.blue, child: Text(m['username'][0].toUpperCase())),
                     title: Text(m['username']),
                     subtitle: Text(hasChar ? "${m['char_name']}" : "Spectateur"),
-                    trailing: hasChar 
-                      ? Text("$hp / $maxHp PV", style: TextStyle(fontWeight: FontWeight.bold, color: (hp is int && hp < 5) ? Colors.red : Colors.green))
-                      : null,
-                    // 👇 ACTION MJ : CLIQUE SUR UN JOUEUR POUR LE BLESSER/SOIGNER 👇
+                    trailing: hasChar ? Text("$hp / $maxHp PV", style: TextStyle(fontWeight: FontWeight.bold, color: (hp is int && hp < 5) ? Colors.red : Colors.green)) : null,
                     onTap: (isGM && hasChar) ? () => _showGMActionDialog(m) : null,
                   );
                 },

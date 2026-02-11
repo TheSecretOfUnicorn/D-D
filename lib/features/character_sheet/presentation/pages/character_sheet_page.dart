@@ -303,38 +303,52 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
 
 // --- ONGLETS ADAPTÉS POUR LE JEU ---
 
+// --- À COLLER À LA FIN DE character_sheet_page.dart ---
+
 class InventoryTab extends StatefulWidget {
   final CharacterModel character;
   final List<Map<String, dynamic>> availableItems;
   final bool isLoading;
   final VoidCallback onSave;
-  final int? campaignId; // Nouveau
-  final CampaignRepository? campaignRepo; // Nouveau
+  final int? campaignId; // Important pour le Chat
+  final CampaignRepository? campaignRepo; // Important pour le Chat
 
-  const InventoryTab({super.key, required this.character, required this.availableItems, required this.isLoading, required this.onSave, this.campaignId, this.campaignRepo});
+  const InventoryTab({
+    super.key, 
+    required this.character, 
+    required this.availableItems, 
+    required this.isLoading, 
+    required this.onSave, 
+    this.campaignId, 
+    this.campaignRepo
+  });
+
   @override
   State<InventoryTab> createState() => _InventoryTabState();
 }
 
 class _InventoryTabState extends State<InventoryTab> {
   late List<dynamic> _items;
+
   @override
   void initState() {
     super.initState();
     _items = widget.character.getStat<List<dynamic>>('inventory', []);
   }
 
+  // 👇 LOGIQUE D'ACTION
   void _useItem(String name) {
-    if (widget.campaignId != null) {
-      widget.campaignRepo?.sendLog(widget.campaignId!, "a utilisé : $name");
+    if (widget.campaignId != null && widget.campaignRepo != null) {
+      widget.campaignRepo!.sendLog(widget.campaignId!, "a utilisé : $name");
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Utilisé : $name")));
     }
   }
 
-  void _addItem() { 
-     String selectedName = "";
+  void _addItem() {
+    String selectedName = "";
     String selectedDesc = "";
     TextEditingController qtyCtrl = TextEditingController(text: "1");
+    
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -349,14 +363,11 @@ class _InventoryTabState extends State<InventoryTab> {
               },
               displayStringForOption: (o) => o['name'],
               onSelected: (s) { selectedName = s['name']; selectedDesc = s['desc'] ?? ""; },
-              fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
-                return TextField(
-                  controller: textEditingController,
-                  focusNode: focusNode,
-                  decoration: const InputDecoration(labelText: "Nom de l'objet", suffixIcon: Icon(Icons.search)),
-                  onChanged: (val) => selectedName = val,
-                );
-              },
+              fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) => TextField(
+                controller: controller, focusNode: focusNode,
+                decoration: const InputDecoration(labelText: "Nom de l'objet", suffixIcon: Icon(Icons.search)),
+                onChanged: (val) => selectedName = val,
+              ),
             ),
             TextField(controller: qtyCtrl, decoration: const InputDecoration(labelText: "Quantité"), keyboardType: TextInputType.number),
           ],
@@ -397,6 +408,7 @@ class _InventoryTabState extends State<InventoryTab> {
                 children: [
                   if (_items[i]['desc'] != null) Padding(padding: const EdgeInsets.all(16), child: Text(_items[i]['desc'])),
                   Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                    // 👇 BOUTON UTILISER (Visible seulement si en campagne)
                     if (widget.campaignId != null)
                       TextButton.icon(
                         icon: const Icon(Icons.touch_app, color: Colors.green), 
@@ -424,29 +436,41 @@ class SpellbookTab extends StatefulWidget {
   final int? campaignId;
   final CampaignRepository? campaignRepo;
 
-  const SpellbookTab({super.key, required this.character, required this.availableSpells, required this.isLoading, required this.onSave, this.campaignId, this.campaignRepo});
+  const SpellbookTab({
+    super.key, 
+    required this.character, 
+    required this.availableSpells, 
+    required this.isLoading, 
+    required this.onSave, 
+    this.campaignId, 
+    this.campaignRepo
+  });
+
   @override
   State<SpellbookTab> createState() => _SpellbookTabState();
 }
 
 class _SpellbookTabState extends State<SpellbookTab> {
   late List<dynamic> _spells;
+
   @override
   void initState() {
     super.initState();
     _spells = widget.character.getStat<List<dynamic>>('spells', []);
   }
 
+  // 👇 LOGIQUE DE LANCER DE SORT
   void _castSpell(String name) {
-    if (widget.campaignId != null) {
-      widget.campaignRepo?.sendLog(widget.campaignId!, "incante : $name ✨");
+    if (widget.campaignId != null && widget.campaignRepo != null) {
+      widget.campaignRepo!.sendLog(widget.campaignId!, "incante : $name ✨");
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lancé : $name")));
     }
   }
 
-  void _addSpell() { 
-     String selectedName = "";
+  void _addSpell() {
+    String selectedName = "";
     TextEditingController levelCtrl = TextEditingController(text: "0");
+    
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -504,8 +528,12 @@ class _SpellbookTabState extends State<SpellbookTab> {
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // 👇 BOUTON LANCER (Visible seulement si en campagne)
                     if (widget.campaignId != null)
-                      IconButton(icon: const Icon(Icons.auto_awesome, color: Colors.purple), onPressed: () => _castSpell(_spells[i]['name'])),
+                      IconButton(
+                        icon: const Icon(Icons.auto_awesome, color: Colors.purple), 
+                        onPressed: () => _castSpell(_spells[i]['name'])
+                      ),
                     IconButton(icon: const Icon(Icons.delete), onPressed: () {
                       setState(() { _spells.removeAt(i); widget.character.setStat('spells', _spells); });
                       widget.onSave();

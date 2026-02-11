@@ -5,15 +5,12 @@ import '../models/campaign_model.dart';
 import '../../../../core/utils/logger_service.dart';
 
 class CampaignRepository {
-  // En production, mettez l'URL dans un fichier .env
+  // ⚠️ Assurez-vous que cette URL est correcte
   final String baseUrl = "http://sc2tphk4284.universe.wf/api_jdr"; 
 
-  // --- 👇 CORRECTION ICI 👇 ---
   Future<Map<String, String>> _getHeaders() async {
     final prefs = await SharedPreferences.getInstance();
-    
-    // CORRECTION : On utilise .get() pour accepter int ou String, puis .toString()
-    final userId = prefs.get('user_id')?.toString(); 
+    final userId = prefs.get('user_id')?.toString();
     
     if (userId == null) throw Exception("Utilisateur non connecté");
     
@@ -22,7 +19,6 @@ class CampaignRepository {
       'x-user-id': userId,
     };
   }
-  // --- 👆 FIN CORRECTION 👆 ---
 
   // --- 1. GESTION DES CAMPAGNES ---
 
@@ -30,14 +26,11 @@ class CampaignRepository {
     try {
       final headers = await _getHeaders();
       final response = await http.get(Uri.parse("$baseUrl/campaigns"), headers: headers);
-
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
         return data.map((json) => CampaignModel.fromJson(json)).toList();
-      } else {
-        Log.error("Erreur serveur (${response.statusCode}): ${response.body}");
-        return [];
       }
+      return [];
     } catch (e) {
       Log.error("Exception getAllCampaigns", e);
       return [];
@@ -52,14 +45,11 @@ class CampaignRepository {
         headers: headers,
         body: jsonEncode({"title": title}),
       );
-
       if (response.statusCode == 200) {
         return CampaignModel.fromJson(jsonDecode(response.body));
       }
-      Log.warning("Echec création campagne: ${response.body}");
       return null;
     } catch (e) {
-      Log.error("Exception createCampaign", e);
       return null;
     }
   }
@@ -72,17 +62,12 @@ class CampaignRepository {
         headers: headers,
         body: jsonEncode({"code": code}),
       );
-
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return CampaignModel.fromJson(data['campaign']);
-      } else {
-        final errorMsg = jsonDecode(response.body)['error'] ?? "Erreur inconnue";
-        Log.warning("Join Fail: $errorMsg");
-        throw Exception(errorMsg); 
       }
+      throw Exception(jsonDecode(response.body)['error'] ?? "Erreur"); 
     } catch (e) {
-      Log.error("Exception joinCampaign", e);
       rethrow;
     }
   }
@@ -90,22 +75,14 @@ class CampaignRepository {
   Future<bool> deleteCampaign(int campaignId) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.delete(
-        Uri.parse("$baseUrl/campaigns/$campaignId"),
-        headers: headers,
-      );
-
-      if (response.statusCode == 200) return true;
-      
-      Log.error("Delete Fail: ${response.body}");
-      return false;
+      final response = await http.delete(Uri.parse("$baseUrl/campaigns/$campaignId"), headers: headers);
+      return response.statusCode == 200;
     } catch (e) {
-      Log.error("Exception deleteCampaign", e);
       return false;
     }
   }
 
-  // --- 2. GESTION DU JEU ---
+  // --- 2. GESTION DU JEU (LOGS & DÉS) ---
 
   Future<bool> sendLog(int campaignId, String content, {String type = 'MSG', int resultValue = 0}) async {
     try {
@@ -113,15 +90,10 @@ class CampaignRepository {
       await http.post(
         Uri.parse("$baseUrl/campaigns/$campaignId/logs"),
         headers: headers,
-        body: jsonEncode({
-          "content": content,
-          "type": type,
-          "result_value": resultValue
-        }),
+        body: jsonEncode({ "content": content, "type": type, "result_value": resultValue }),
       );
       return true;
     } catch (e) {
-      Log.error("Erreur sendLog", e);
       return false;
     }
   }
@@ -129,17 +101,12 @@ class CampaignRepository {
   Future<List<Map<String, dynamic>>> getLogs(int campaignId) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.get(
-        Uri.parse("$baseUrl/campaigns/$campaignId/logs"),
-        headers: headers,
-      );
-
+      final response = await http.get(Uri.parse("$baseUrl/campaigns/$campaignId/logs"), headers: headers);
       if (response.statusCode == 200) {
         return List<Map<String, dynamic>>.from(jsonDecode(response.body));
       }
       return [];
     } catch (e) {
-      Log.error("Erreur getLogs", e);
       return [];
     }
   }
@@ -154,28 +121,19 @@ class CampaignRepository {
       );
       return response.statusCode == 200;
     } catch (e) {
-      Log.error("Erreur updateSettings", e);
       return false;
     }
   }
 
-  // --- 3. GESTION MEMBRES & PERSOS ---
-
   Future<List<Map<String, dynamic>>> getMembers(int campaignId) async {
     try {
       final headers = await _getHeaders();
-      final response = await http.get(
-        Uri.parse("$baseUrl/campaigns/$campaignId/members"), 
-        headers: headers
-      );
-
+      final response = await http.get(Uri.parse("$baseUrl/campaigns/$campaignId/members"), headers: headers);
       if (response.statusCode == 200) {
         return List<Map<String, dynamic>>.from(jsonDecode(response.body));
       }
-      Log.warning("Erreur getMembers: ${response.body}");
       return [];
     } catch (e) {
-      Log.error("Exception getMembers", e);
       return [];
     }
   }
@@ -190,7 +148,6 @@ class CampaignRepository {
       );
       return true;
     } catch (e) {
-      Log.error("Erreur selectCharacter", e);
       return false;
     }
   }
@@ -205,7 +162,45 @@ class CampaignRepository {
       );
       return true;
     } catch (e) {
-      Log.error("Erreur updateMemberStat", e);
+      return false;
+    }
+  }
+
+  // --- 3. COMBAT TRACKER (LES FONCTIONS MANQUANTES) ---
+
+  Future<Map<String, dynamic>> getCombatDetails(int campaignId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(Uri.parse("$baseUrl/campaigns/$campaignId/combat"), headers: headers);
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      return {'active': false};
+    } catch (e) {
+      return {'active': false};
+    }
+  }
+
+  Future<bool> startCombat(int campaignId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.post(Uri.parse("$baseUrl/campaigns/$campaignId/combat/start"), headers: headers);
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> updateParticipant(int campaignId, int participantId, Map<String, dynamic> data) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.patch(
+        Uri.parse("$baseUrl/campaigns/$campaignId/combat/participants/$participantId"),
+        headers: headers,
+        body: jsonEncode(data),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
       return false;
     }
   }

@@ -1,30 +1,34 @@
-import '../../../character_sheet/data/models/character_model.dart';
-
 class CombatantModel {
-  final String id;          // ID unique pour le combat (ex: Gobelin #1, Gobelin #2)
-  final String name;        // Nom affiché
-  final int initiative;     // Le score du dé
-  final CharacterModel? character; // Lien optionnel vers une vraie fiche (si c'est un PJ)
-  
-  // État du tour
-  bool hasPlayed;
+  final int id;             // ID unique en base de données (table combat_participants)
+  final String name;
+  final int initiative;
+  final int hpCurrent;
+  final int hpMax;
+  final int ac;             // Classe d'armure
+  final bool isNpc;         // Est-ce un monstre/PNJ ?
+  final int? characterId;   // Lien vers la fiche perso (si c'est un joueur)
 
   CombatantModel({
     required this.id,
     required this.name,
     required this.initiative,
-    this.character,
-    this.hasPlayed = false,
+    required this.hpCurrent,
+    required this.hpMax,
+    required this.ac,
+    required this.isNpc,
+    this.characterId,
   });
 
-  // Pour cloner et modifier facilement (Immutabilité)
-  CombatantModel copyWith({bool? hasPlayed, int? initiative}) {
+  factory CombatantModel.fromJson(Map<String, dynamic> json) {
     return CombatantModel(
-      id: id,
-      name: name,
-      character: character,
-      initiative: initiative ?? this.initiative,
-      hasPlayed: hasPlayed ?? this.hasPlayed,
+      id: json['id'],
+      name: json['name'] ?? "Inconnu",
+      initiative: json['initiative'] ?? 0,
+      hpCurrent: json['hp_current'] ?? 10,
+      hpMax: json['hp_max'] ?? 10,
+      ac: json['ac'] ?? 10,
+      isNpc: json['is_npc'] ?? false,
+      characterId: json['character_id'],
     );
   }
 }
