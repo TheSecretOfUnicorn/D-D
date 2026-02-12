@@ -2,15 +2,17 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import '../../data/models/campaign_model.dart';
 import '../../data/repositories/campaign_repository.dart';
 import '../../../character_sheet/data/repositories/character_repository_impl.dart';
 import '../../../character_sheet/data/models/character_model.dart';
 import '../../../character_sheet/presentation/pages/character_sheet_page.dart';
 import '../../../rules_engine/data/repositories/rules_repository_impl.dart';
-// 👇 IMPORT IMPORTANT POUR LE COMBAT
 import '../../../combat/presentation/pages/combat_page.dart';
+import '../../../campaign_manager/presentation/pages/journal_page.dart';
+
+
+
 
 class CampaignGamePage extends StatefulWidget {
   final CampaignModel campaign;
@@ -233,13 +235,29 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
               Navigator.push(context, MaterialPageRoute(builder: (_) => CombatPage(campaignId: widget.campaign.id, isGM: isGM)));
             },
           ),
-
+          // Dans campaign_game_page.dart (Actions)
+            IconButton(
+              icon: const Icon(Icons.menu_book, color: Colors.brown), // Icône Livre
+              tooltip: "Journal",
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => JournalPage(
+                      campaignId: widget.campaign.id,
+                      isGM: widget.campaign.role == 'GM', // isGM passé automatiquement
+                    ),
+                  ),
+                );
+              },
+            ),
           // 3. Switch MJ : Activer Dés
           if (isGM) Switch(value: _allowDice, activeThumbColor: Colors.greenAccent, onChanged: _toggleDice),
 
           // 4. Drawer : Liste des Joueurs
           Builder(builder: (context) => IconButton(icon: const Icon(Icons.people), onPressed: () => Scaffold.of(context).openEndDrawer())),
         ],
+        
       ),
       endDrawer: Drawer(
         child: Column(

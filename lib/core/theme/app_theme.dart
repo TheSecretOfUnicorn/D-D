@@ -7,7 +7,7 @@ class AppTheme {
   static const Color accent = Color(0xFFFFD700);  // Or
   static const Color background = Color(0xFF1A1A1A); // Gris très sombre (Charbon)
   static const Color surface = Color(0xFF2C2C2C); // Gris pierre pour les cartes
-  static const Color textMain = Color(0xFFE0E0E0); // Blanc cassé
+  static const Color textMain = Color(0xFF838383); // Blanc cassé
   static const Color textMuted = Color(0xFFA0A0A0); // Gris clair
 
   static ThemeData get darkFantasy {

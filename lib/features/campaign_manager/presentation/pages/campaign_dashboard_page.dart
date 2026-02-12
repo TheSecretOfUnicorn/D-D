@@ -305,7 +305,24 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
           IconButton(
             icon: const Icon(Icons.menu_book),
             tooltip: "Wiki / Notes",
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WikiPage())),
+            onPressed: () {
+              if (_campaigns.isNotEmpty) {
+                final firstCampaign = _campaigns.first;
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => WikiPage(
+                      campaignId: firstCampaign.id,
+                      isGM: firstCampaign.role == 'GM',
+                    ),
+                  ),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Aucune campagne disponible")),
+                );
+              }
+            },
           ),
           IconButton(
             icon: const Icon(Icons.auto_stories),

@@ -1,38 +1,33 @@
 class NoteModel {
-  final String id;
+  final int id;
   final String title;
-  final String content; // Le texte du scénario
-  final String? parentId; // L'ID du dossier parent (null = racine)
-  final bool isFolder; // Est-ce un dossier ou une page ?
-  final DateTime lastEdited;
+  final String content;
+  final bool isPublic;
+  final DateTime createdAt;
 
   NoteModel({
     required this.id,
     required this.title,
-    this.content = "",
-    this.parentId,
-    this.isFolder = false,
-    required this.lastEdited,
+    required this.content,
+    required this.isPublic,
+    required this.createdAt,
   });
-
-  // Sérialisation JSON (comme d'habitude)
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'title': title,
-    'content': content,
-    'parent_id': parentId,
-    'is_folder': isFolder,
-    'last_edited': lastEdited.toIso8601String(),
-  };
 
   factory NoteModel.fromJson(Map<String, dynamic> json) {
     return NoteModel(
       id: json['id'],
-      title: json['title'],
+      title: json['title'] ?? "Sans titre",
       content: json['content'] ?? "",
-      parentId: json['parent_id'],
-      isFolder: json['is_folder'] ?? false,
-      lastEdited: DateTime.parse(json['last_edited']),
+      isPublic: json['is_public'] ?? false,
+      createdAt: json['created_at'] != null 
+          ? DateTime.parse(json['created_at']) 
+          : DateTime.now(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'title': title,
+    'content': content,
+    'is_public': isPublic,
+  };
 }

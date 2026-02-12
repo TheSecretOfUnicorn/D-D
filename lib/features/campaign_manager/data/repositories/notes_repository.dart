@@ -1,32 +1,87 @@
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/note_model.dart';
 import '../../../../core/utils/logger_service.dart';
+import '../models/note_model.dart';
 
 class NotesRepository {
-  static const String _storageKey = 'campaign_notes_list';
+  final String baseUrl = "http://sc2tphk4284.universe.wf/api_jdr"; 
 
-  /// Sauvegarde toute la liste des notes d'un coup (pour faire simple)
-  Future<void> saveNotes(List<NoteModel> notes) async {
+  Future<Map<String, String>> _getHeaders() async {
     final prefs = await SharedPreferences.getInstance();
-    final String encoded = jsonEncode(notes.map((e) => e.toJson()).toList());
-    await prefs.setString(_storageKey, encoded);
+    final userId = prefs.get('user_id')?.toString();
+    return {
+      'Content-Type': 'application/json',
+      'x-user-id': userId ?? '',
+    };
   }
 
-  /// Charge toutes les notes
-  Future<List<NoteModel>> loadNotes() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? encoded = prefs.getString(_storageKey);
-    
-    if (encoded == null) return [];
-
+  /// Charger les notes de la campagne
+  Future<List<NoteModel>> fetchNotes(int campaignId) async {
     try {
-      final List<dynamic> list = jsonDecode(encoded);
-      return list.map((e) => NoteModel.fromJson(e)).toList();
-    } catch (e) {
+      final headers = await _getHeaders();
+      final response = await http.get(
+        Uri.parse("$baseUrl/campaigns/$campaignId/notes"),
+        headers: headers,
+      );
 
-      Log.error("Exception loadNotes", e);
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return data.map((e) => NoteModel.fromJson(e)).toList();
+      }
       return [];
+    } catch (e) {
+      Log.error("Erreur fetchNotes", e);
+      return [];
+    }
+  }
+
+  /// Créer une note
+  Future<bool> createNote(int campaignId, String title, String content, bool isPublic) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.post(
+        Uri.parse("$baseUrl/campaigns/$campaignId/notes"),
+        headers: headers,
+        body: jsonEncode({
+          "title": title,
+          "content": content,
+          "is_public": isPublic
+        }),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      Log.error("Erreur createNote", e);
+      return false;
+    }
+  }
+
+  /// Supprimer une note
+  Future<bool> deleteNote(int noteId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.delete(
+        Uri.parse("$baseUrl/notes/$noteId"),
+        headers: headers,
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Changer la visibilité (Public/Privé)
+  Future<bool> toggleVisibility(int noteId, bool isPublic) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.patch(
+        Uri.parse("$baseUrl/notes/$noteId/share"),
+        headers: headers,
+        body: jsonEncode({"is_public": isPublic}),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
     }
   }
 }

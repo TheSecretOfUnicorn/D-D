@@ -1,21 +1,26 @@
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
-import '../../domain/models/map_config_model.dart';
+import '../../data/models/map_config_model.dart';
 import '/core/utils/hex_utils.dart';
-
+// On importe le fichier de la page pour récupérer l'enum TileType
+import '../../data/models/tile_type.dart'; // Assure-toi que ce fichier existe (Etape précédente)
 class TileLayerPainter extends CustomPainter {
   final MapConfig config;
-  final ui.Image? tileImage;
-  final Set<String> paintedCells;
+  final ui.Image? floorImage;
+  final ui.Image? wallImage;
+  final Map<String, TileType> gridData; // Accepte la Map
   final double radius;
-  final Offset offset; // AJOUT : Décalage global
+  final Offset offset;
 
   TileLayerPainter({
     required this.config,
-    this.tileImage,
-    required this.paintedCells,
+    this.floorImage,
+    this.wallImage,
+    required this.gridData,
     required this.radius,
-    required this.offset, // Requis
+    required this.offset,
+    
+
   });
 
   @override
@@ -23,13 +28,11 @@ class TileLayerPainter extends CustomPainter {
     final paint = Paint();
     final hexPath = HexUtils.getHexPath(radius);
 
-    // 1. APPLIQUER LA MARGE GLOBALE
-    // On déplace tout le repère de dessin vers le bas-droite
     canvas.save();
     canvas.translate(offset.dx, offset.dy);
 
-    // 2. TRI (Z-INDEX)
-    final sortedKeys = paintedCells.toList()
+    // Tri Z-Index pour l'affichage correct
+    final sortedKeys = gridData.keys.toList()
       ..sort((a, b) {
         final pa = a.split(',');
         final pb = b.split(',');
@@ -39,8 +42,8 @@ class TileLayerPainter extends CustomPainter {
         return int.parse(pa[0]).compareTo(int.parse(pb[0]));
       });
 
-    // 3. DESSIN
     for (String key in sortedKeys) {
+      final type = gridData[key];
       final parts = key.split(',');
       final center = HexUtils.gridToPixel(int.parse(parts[0]), int.parse(parts[1]), radius);
 
@@ -48,17 +51,28 @@ class TileLayerPainter extends CustomPainter {
       canvas.translate(center.dx, center.dy);
       canvas.clipPath(hexPath);
       
-      if (tileImage != null) {
-        final srcRect = Rect.fromLTWH(0, 0, tileImage!.width.toDouble(), tileImage!.height.toDouble());
-        final dstRect = Rect.fromCenter(center: Offset.zero, width: radius * 2.02, height: radius * 2.02);
-        canvas.drawImageRect(tileImage!, srcRect, dstRect, paint);
-      } else {
-        canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: radius * 2, height: radius * 2), Paint()..color = Colors.grey);
+      ui.Image? imgToDraw;
+      Color fallbackColor = Colors.grey;
+
+      if (type == TileType.floor) {
+        imgToDraw = floorImage;
+        fallbackColor = Colors.grey;
+      } else if (type == TileType.wall) {
+        imgToDraw = wallImage;
+        fallbackColor = Colors.brown; // Couleur marron si mur absent
       }
+
+      if (imgToDraw != null) {
+        final srcRect = Rect.fromLTWH(0, 0, imgToDraw.width.toDouble(), imgToDraw.height.toDouble());
+        final dstRect = Rect.fromCenter(center: Offset.zero, width: radius * 2.02, height: radius * 2.02);
+        canvas.drawImageRect(imgToDraw, srcRect, dstRect, paint);
+      } else {
+        canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: radius * 2, height: radius * 2), Paint()..color = fallbackColor);
+      }
+      
       canvas.restore();
     }
 
-    // On restaure le translate global
     canvas.restore();
   }
 

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../domain/models/map_config_model.dart';
+import '../../data/models/map_config_model.dart';
 import '/core/utils/hex_utils.dart';
 
 class GridPainter extends CustomPainter {
