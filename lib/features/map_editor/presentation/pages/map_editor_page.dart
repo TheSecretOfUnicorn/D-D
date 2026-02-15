@@ -18,6 +18,8 @@ import '../painters/tile_layer_painter.dart';
 import '../painters/background_pattern_painter.dart';
 import '../painters/token_painter.dart';
 import '../painters/fog_painter.dart';
+import '../../core/services/pathfinding_service.dart';
+import '../painters/movement_painter.dart';
 
 // --- MOCKS (A SUPPRIMER une fois tes vrais fichiers créés) ---
 class MapRepository {
@@ -79,7 +81,7 @@ class _MapEditorPageState extends State<MapEditorPage> {
   Set<String> _visibleCells = {};
   final Set<String> _exploredCells = {};
   bool _fogEnabled = true;
-
+  Set<String> _reachableCells = {}; // Cases accessibles pour le pion sélectionné
   // DONNÉES CAMPAGNE
   List<Map<String, dynamic>> _members = []; 
   String? _selectedCharId; 
@@ -90,6 +92,8 @@ class _MapEditorPageState extends State<MapEditorPage> {
   bool _isPortrait = false; 
 
   double get _hexRadius => mapConfig.cellSize / HexUtils.sqrt3;
+
+  
 
   @override
   void initState() {
@@ -118,28 +122,33 @@ class _MapEditorPageState extends State<MapEditorPage> {
   }
 
   Future<void> _loadMembers() async {
-    // Si campaignId est 0 (debug), on met des faux membres
-    if (widget.campaignId == 0) {
-      if (mounted) {
-        setState(() {
-          _members = [
-            {'char_id': '1', 'char_name': 'Héros'},
-            {'char_id': '2', 'char_name': 'Monstre'},
-          ];
-        });
+    List<Map<String, dynamic>> loadedMembers = [];
+
+    // 1. Essayer de charger depuis la base de données (si ID != 0)
+    if (widget.campaignId != 0) {
+      try {
+        final members = await _campRepo.getMembers(widget.campaignId);
+        loadedMembers = members.where((m) => m['char_id'] != null).toList();
+      } catch (e) {
+        debugPrint("Erreur chargement membres: $e");
       }
-      return;
     }
 
-    try {
-      final members = await _campRepo.getMembers(widget.campaignId);
-      if (mounted) {
-        setState(() {
-          _members = members.where((m) => m['char_id'] != null).toList();
-        });
-      }
-    } catch (e) {
-      debugPrint("Erreur chargement membres: $e");
+    // 2. FALLBACK : Si la liste est vide (Pas de DB ou Mode Debug), on met les persos par défaut
+    if (loadedMembers.isEmpty) {
+      debugPrint("⚠️ Liste vide -> Chargement des personnages de TEST");
+      loadedMembers = [
+        {'char_id': '101', 'char_name': 'Guerrier'},
+        {'char_id': '102', 'char_name': 'Mage'},
+        {'char_id': '103', 'char_name': 'Voleur'},
+        {'char_id': '104', 'char_name': 'Monstre'},
+      ];
+    }
+
+    if (mounted) {
+      setState(() {
+        _members = loadedMembers;
+      });
     }
   }
 
@@ -212,6 +221,15 @@ class _MapEditorPageState extends State<MapEditorPage> {
       }
       // 3. TOKEN
       else if (_selectedTool == EditorTool.token && details is PointerDownEvent) {
+        _ToolButton(
+              icon: Icons.person, 
+              label: "Pions", 
+              isSelected: _selectedTool == EditorTool.token, 
+              onTap: () {
+                setState(() => _selectedTool = EditorTool.token);
+                _calculateMovementRange(); // Recalculer si un perso était déjà sélectionné
+              }
+            );
         if (_selectedCharId == null) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sélectionnez un personnage !")));
         } else {
@@ -223,6 +241,7 @@ class _MapEditorPageState extends State<MapEditorPage> {
       // Si quelque chose a changé, on recalcule le brouillard
       if (changed) {
         _recalculateFog();
+        _calculateMovementRange();
       }
     }
   }
@@ -289,6 +308,7 @@ class _MapEditorPageState extends State<MapEditorPage> {
                 mapMargin: _mapMargin,
                 totalWidth: w,
                 totalHeight: h,
+                reachableCells: _reachableCells,
               ),
             ),
           );
@@ -335,10 +355,11 @@ class _MapEditorPageState extends State<MapEditorPage> {
                 direction: direction,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                   const SizedBox(width: 5, height: 5),
+                  const SizedBox(width: 5, height: 5),
                   _ToolButton(icon: Icons.pan_tool, label: "Vue", isSelected: _selectedTool == EditorTool.move, onTap: () => setState(() => _selectedTool = EditorTool.move)),
                   const SizedBox(width: 5, height: 5),
                   _ToolButton(icon: Icons.cleaning_services, label: "Gomme", isSelected: _selectedTool == EditorTool.eraser, onTap: () => setState(() => _selectedTool = EditorTool.eraser)),
+                  
                   const Divider(color: Colors.white24, indent: 5, endIndent: 5),
                   
                   // TYPES DE TERRAIN
@@ -347,47 +368,84 @@ class _MapEditorPageState extends State<MapEditorPage> {
                   _TileTypeButton(label: "Mur", color: Colors.brown, isSelected: _selectedTool == EditorTool.brush && _selectedTileType == TileType.wall, onTap: () => setState(() { _selectedTool = EditorTool.brush; _selectedTileType = TileType.wall; })),
                   
                   const Divider(color: Colors.white24, indent: 5, endIndent: 5),
-                  // TOKEN
+                  
+                  // OUTIL PIONS
                   _ToolButton(icon: Icons.person, label: "Pions", isSelected: _selectedTool == EditorTool.token, onTap: () => setState(() => _selectedTool = EditorTool.token)),
                 ],
               ),
             ),
           ),
           
-          // LISTE DES PERSONNAGES (Si outil Token actif)
+          // --- C'EST ICI QUE LE MENU APPARAÎT ---
           if (_selectedTool == EditorTool.token)
              Container(
-               height: direction == Axis.vertical ? 200 : 50,
+               // Hauteur fixe en mode paysage (vertical), largeur fixe en portrait
+               height: direction == Axis.vertical ? 150 : 60, 
                width: direction == Axis.horizontal ? double.infinity : null,
-               color: Colors.black26,
-               child: ListView.builder(
-                 scrollDirection: direction,
-                 itemCount: _members.length,
-                 itemBuilder: (ctx, i) {
-                   final m = _members[i];
-                   final charId = m['char_id'].toString();
-                   return GestureDetector(
-                     onTap: () => setState(() => _selectedCharId = charId),
-                     child: Container(
-                       margin: const EdgeInsets.all(4),
-                       padding: const EdgeInsets.all(2),
-                       decoration: BoxDecoration(
-                         border: _selectedCharId == charId ? Border.all(color: Colors.greenAccent, width: 2) : null,
-                         shape: BoxShape.circle,
-                       ),
-                       child: CircleAvatar(
-                         radius: 16,
-                         backgroundColor: Colors.primaries[charId.hashCode % Colors.primaries.length],
-                         child: Text(m['char_name'][0], style: const TextStyle(color: Colors.white, fontSize: 12)),
-                       ),
-                     ),
-                   );
-                 },
-               ),
+               color: Colors.black45, // Fond un peu plus foncé pour distinguer
+               padding: const EdgeInsets.all(4),
+               child: _members.isEmpty 
+                 ? const Center(child: Text("Aucun perso", style: TextStyle(color: Colors.white54, fontSize: 10)))
+                 : ListView.builder(
+                     scrollDirection: direction,
+                     itemCount: _members.length,
+                     itemBuilder: (ctx, i) {
+                       final m = _members[i];
+                       final charId = m['char_id'].toString();
+                       final isSelected = _selectedCharId == charId;
+                       
+                       return GestureDetector(
+                         onTap: () => setState(() => _selectedCharId = charId),
+                         child: Container(
+                           margin: const EdgeInsets.all(4),
+                           padding: const EdgeInsets.all(2),
+                           decoration: BoxDecoration(
+                             // Bordure verte si sélectionné
+                             border: isSelected ? Border.all(color: Colors.greenAccent, width: 2) : null,
+                             shape: BoxShape.circle,
+                           ),
+                           child: CircleAvatar(
+                             radius: 18,
+                             backgroundColor: Colors.primaries[charId.hashCode % Colors.primaries.length],
+                             child: Text(
+                               m['char_name'][0], // Première lettre du nom
+                               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
+                             ),
+                           ),
+                         ),
+                       );
+                     },
+                   ),
              )
         ],
       ),
     );
+  }
+  void _calculateMovementRange() {
+    // Si aucun perso sélectionné ou pas en mode Token, on vide
+    if (_selectedCharId == null || !_tokenPositions.containsKey(_selectedCharId)) {
+      setState(() => _reachableCells = {});
+      return;
+    }
+
+    final startPos = _tokenPositions[_selectedCharId]!;
+    
+    // Récupération des murs
+    final walls = _gridData.entries
+        .where((e) => e.value == TileType.wall)
+        .map((e) => e.key)
+        .toSet();
+
+    // Calcul (On suppose une vitesse de 6 cases pour tout le monde pour l'instant)
+    final reachable = PathfindingService.getReachableCells(
+      start: startPos,
+      movement: 6, // 6 cases = 9m (standard D&D)
+      walls: walls,
+      maxCols: mapConfig.widthInCells,
+      maxRows: mapConfig.heightInCells,
+    );
+
+    setState(() => _reachableCells = reachable);
   }
 }
 
@@ -420,17 +478,21 @@ class MapCanvasWidget extends StatelessWidget {
   final Map<String, dynamic> tokenDetails;
   final Set<String> visibleCells;
   final Set<String> exploredCells;
+  final Set<String> reachableCells;
   final bool fogEnabled;
   final double hexRadius;
   final double mapMargin;
   final double totalWidth;
   final double totalHeight;
 
+
+
   const MapCanvasWidget({
     super.key, required this.mapConfig, this.floorTexture, this.wallTexture, this.parchmentTexture,
     required this.gridData, required this.tokenPositions, required this.tokenDetails,
     required this.visibleCells, required this.exploredCells, required this.fogEnabled,
     required this.hexRadius, required this.mapMargin, required this.totalWidth, required this.totalHeight,
+    required this.reachableCells,
   });
 
   @override
@@ -453,8 +515,19 @@ class MapCanvasWidget extends StatelessWidget {
           IgnorePointer(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: GridPainter(
             config: mapConfig, radius: hexRadius, offset: offset
           ))),
-
-          // 4. Tokens
+          // 4. ZONE DE DÉPLACEMENT (NOUVEAU)
+          RepaintBoundary(
+            child: CustomPaint(
+              size: Size(totalWidth, totalHeight),
+              painter: MovementPainter(
+                config: mapConfig,
+                reachableCells: fogEnabled ? reachableCells.intersection(visibleCells) : reachableCells,
+                radius: hexRadius,
+                offset: offset,
+              ),
+            ),
+          ),
+          // 4Bis. Tokens
           RepaintBoundary(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: TokenPainter(
             config: mapConfig, tokenPositions: tokenPositions, tokenDetails: tokenDetails, radius: hexRadius, offset: offset
           ))),

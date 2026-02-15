@@ -8,7 +8,6 @@ import '../../../../core/utils/logger_service.dart';
 class CharacterRepositoryImpl {
   // ⚠️ Ton URL Serveur (sans slash à la fin)
   final String baseUrl = "http://sc2tphk4284.universe.wf/api_jdr";
-  
   get log => Log;
 
   Future<Map<String, String>> _getHeaders() async {

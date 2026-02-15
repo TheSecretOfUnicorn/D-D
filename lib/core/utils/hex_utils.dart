@@ -117,10 +117,45 @@ class HexUtils {
     }
     return HexCube(rx.toDouble(), ry.toDouble(), rz.toDouble());
   }
+
+  static getNeighbors(Point<int> point) {}
 }
+
 
 // Petite classe utilitaire interne
 class HexCube {
   final double x, y, z;
   HexCube(this.x, this.y, this.z);
+    static Point<int> cubeToOffset(HexCube cube) {
+    var col = (cube.x + (cube.z - (cube.z.toInt() & 1)) / 2).toInt();
+    var row = cube.z.toInt();
+    return Point(col, row);
+  }
+  // Convertit "Odd-r" (notre grille décalée) vers Cube (x, y, z)
+  static HexCube offsetToCube(int col, int row) {
+    var x = col - (row - (row & 1)) / 2;
+    var z = row;
+    var y = -x - z;
+    return HexCube(x.toDouble(), y.toDouble(), z.toDouble());
+  }
+
+  // --- 3. VOISINS ET DIRECTIONS ---
+  
+  static List<Point<int>> getNeighbors(Point<int> hex) {
+    // Les 6 directions en coordonnées cubiques
+    var directions = [
+      HexCube(1, -1, 0), HexCube(1, 0, -1), HexCube(0, 1, -1),
+      HexCube(-1, 1, 0), HexCube(-1, 0, 1), HexCube(0, -1, 1),
+    ];
+
+    var center = offsetToCube(hex.x, hex.y);
+    var neighbors = <Point<int>>[];
+
+    for (var d in directions) {
+      var neighborCube = HexCube(center.x + d.x, center.y + d.y, center.z + d.z);
+      neighbors.add(cubeToOffset(neighborCube));
+    }
+    return neighbors;
+  }
 }
+
