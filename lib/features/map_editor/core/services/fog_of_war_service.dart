@@ -2,11 +2,15 @@ import 'dart:math';
 // Assure-toi que ce fichier existe (Etape précédente)
 import '/core/utils/hex_utils.dart';
 
-
+class VisionSource {
+  final Point<int> position;
+  final int range;
+  VisionSource(this.position, this.range);
+}
 
 class FogOfWarService {
   static Set<String> calculateVisibility({
-    required List<Point<int>> tokens,
+    required List<VisionSource> sources,
     required Set<String> walls,
     required int maxCols,
     required int maxRows,
@@ -14,17 +18,19 @@ class FogOfWarService {
   }) {
     final Set<String> visibleCells = {};
 
-    for (var tokenPos in tokens) {
-      int startCol = max(0, tokenPos.x - visionRange);
-      int endCol = min(maxCols, tokenPos.x + visionRange);
-      int startRow = max(0, tokenPos.y - visionRange);
-      int endRow = min(maxRows, tokenPos.y + visionRange);
+    for (var source in sources) {
+      if (source.range <= 0) continue; // Ignore les lumières éteintes
+
+      int startCol = max(0, source.position.x - source.range);
+      int endCol = min(maxCols, source.position.x + source.range);
+      int startRow = max(0, source.position.y - source.range);
+      int endRow = min(maxRows, source.position.y + source.range);
 
       for (int c = startCol; c <= endCol; c++) {
         for (int r = startRow; r <= endRow; r++) {
-          bool isBorder = c == startCol || c == endCol || r == startRow || r == endRow;
-          if (isBorder || HexUtils.distance(tokenPos, Point(c,r)) <= visionRange) {
-             _castRay(tokenPos, Point(c, r), walls, visibleCells, visionRange);
+          // Optimisation : boîte englobante simple avant Raycasting
+          if (HexUtils.distance(source.position, Point(c,r)) <= source.range) {
+             _castRay(source.position, Point(c, r), walls, visibleCells, source.range);
           }
         }
       }
@@ -38,7 +44,7 @@ class FogOfWarService {
       if (HexUtils.distance(start, point) > range) break;
       final key = "${point.x},${point.y}";
       visibleCells.add(key);
-      if (walls.contains(key)) break; // Le mur bloque la vue
+      if (walls.contains(key)) break;
     }
   }
 }

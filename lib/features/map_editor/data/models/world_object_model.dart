@@ -12,6 +12,8 @@ class WorldObject {
   final ObjectType type;
   bool state; // true = Ouvert/Allumé, false = Fermé/Éteint
   final int rotation;
+  final double lightRadius; // En cases (ex: 5.0)
+  final int lightColor;
 
   WorldObject({
     required this.id,
@@ -19,16 +21,25 @@ class WorldObject {
     required this.type,
     this.state = false, // Par défaut : Porte fermée, Coffre fermé
     this.rotation = 0,
+    this.lightRadius = 0.0,
+    this.lightColor = 0xFFFFA726, // Orange clair par défaut
   });
 
   // Pour cloner l'objet avec un nouvel état (Immutabilité partielle)
-WorldObject copyWith({bool? state, int? rotation}) {
+WorldObject copyWith({
+    bool? state, 
+    int? rotation,
+    double? lightRadius,
+    int? lightColor,
+  }) {
     return WorldObject(
       id: id,
       position: position,
       type: type,
       state: state ?? this.state,
       rotation: rotation ?? this.rotation,
+      lightRadius: lightRadius ?? this.lightRadius,
+      lightColor: lightColor ?? this.lightColor,
     );
   }
 }

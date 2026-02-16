@@ -36,3 +36,4 @@ flutter:
     - assets/rules/
     - assets/data/
     - assets/images/tiles/
+    - assets/images/objects/ 

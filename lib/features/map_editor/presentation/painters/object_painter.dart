@@ -1,5 +1,4 @@
-import 'dart:math';
-
+import 'dart:math'; // Nécessaire pour pi
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import '../../data/models/map_config_model.dart';
@@ -29,15 +28,13 @@ class ObjectPainter extends CustomPainter {
     for (var obj in objects.values) {
       final center = HexUtils.gridToPixel(obj.position.x, obj.position.y, radius);
       
-      // On choisit l'image ou la couleur selon le type
       ui.Image? img;
       Color fallbackColor = Colors.transparent;
       
       switch (obj.type) {
         case ObjectType.door:
-          // Si ouvert : transparent ou porte ouverte. Si fermé : porte fermée
           img = obj.state ? assets['door_open'] : assets['door_closed'];
-          fallbackColor = obj.state ? Colors.brown.withValues(alpha: 0.3) : Colors.brown;
+          fallbackColor = Colors.brown;
           break;
         case ObjectType.chest:
           img = obj.state ? assets['chest_open'] : assets['chest_closed'];
@@ -45,43 +42,41 @@ class ObjectPainter extends CustomPainter {
           break;
         case ObjectType.torch:
           img = assets['torch'];
-          fallbackColor = Colors.orangeAccent;
+          fallbackColor = Colors.orange;
           break;
       }
-      
-      if (obj.rotation > 0) {
-        canvas.rotate(obj.rotation * (pi / 3));
-      }
 
-    
+      // --- CORRECTION ROTATION ---
       canvas.save();
+      
+      // 1. On déplace le point de pivot au CENTRE de l'objet
       canvas.translate(center.dx, center.dy);
 
+      // 2. On applique la rotation
+      // Tu as demandé 8 positions : 360° / 8 = 45° = pi / 4 radians
+      if (obj.rotation > 0) {
+        canvas.rotate(obj.rotation * (pi / 4)); 
+      }
+
+      // 3. On dessine l'image centrée sur le point de pivot (0,0 local)
       if (img != null) {
-        // Dessin de l'image (centrée, taille ajustée)
+        // Ajuste la taille selon tes besoins (ici 1.5x le rayon pour couvrir un peu plus)
         final double size = radius * 1.5; 
-        final src = Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble());
+        
+        // Rect de destination centré sur (0,0)
         final dst = Rect.fromCenter(center: Offset.zero, width: size, height: size);
+        final src = Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble());
+        
         canvas.drawImageRect(img, src, dst, Paint());
       } else {
-        // Fallback (Carré de couleur)
-        canvas.drawRect( 
+        // Fallback carré centré
+        canvas.drawRect(
           Rect.fromCenter(center: Offset.zero, width: radius, height: radius),
           Paint()..color = fallbackColor
         );
-        
-        // Petit texte pour debug (D = Door, C = Chest)
-        final textPainter = TextPainter(
-          text: TextSpan(
-            text: obj.type.name[0].toUpperCase(), 
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
-          ),
-          textDirection: TextDirection.ltr
-        )..layout();
-        textPainter.paint(canvas, Offset(-textPainter.width/2, -textPainter.height/2));
       }
       
-      canvas.restore();
+      canvas.restore(); // Restaure pour le prochain objet
     }
     canvas.restore();
   }

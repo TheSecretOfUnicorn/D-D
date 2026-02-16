@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'dart:collection';
 
 // --- IMPORTS MODÈLES ---
 import '../../data/models/map_config_model.dart';
@@ -24,11 +25,14 @@ import '../painters/token_painter.dart';
 import '../painters/fog_painter.dart';
 import '../painters/movement_painter.dart';
 import '../painters/object_painter.dart'; 
+import '../painters/lighting_painter.dart';
 
 // --- IMPORT WIDGETS ---
 import '../widgets/editor_palette.dart'; 
 
-enum EditorTool { move, brush, eraser, token, object, interact, rotate }
+enum EditorTool { move, brush, eraser, token, object, interact, rotate, fill }
+
+
 
 class MapRepository {
   Future<bool> saveMapData(dynamic data) async {
@@ -41,6 +45,7 @@ class MapDataModel {
   final Map<String, TileType> gridData; // On sauvegarde la Map complète
   MapDataModel({this.id, required this.name, required this.config, required this.gridData, required Object objects, required Map<String, int> tileRotations});
 }
+
 
 class MapEditorPage extends StatefulWidget {
   final int campaignId;
@@ -56,9 +61,10 @@ class MapEditorPage extends StatefulWidget {
   State<MapEditorPage> createState() => _MapEditorPageState();
 }
 
-class _MapEditorPageState extends State<MapEditorPage> {
+class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProviderStateMixin {
   final CampaignRepository _campRepo = CampaignRepository();
   final MapRepository _mapRepo = MapRepository();
+  late final AnimationController _animController;
 
   MapConfig _mapConfig = const MapConfig(
     widthInCells: 20,
@@ -102,10 +108,20 @@ class _MapEditorPageState extends State<MapEditorPage> {
 
   @override
   void initState() {
+    _animController = AnimationController(
+      vsync: this, 
+      duration: const Duration(seconds: 2)
+    )..repeat(reverse: true);
     super.initState();
     _loadAllAssets();
     _loadMembers();
     WidgetsBinding.instance.addPostFrameCallback((_) => _recalculateFog());
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose(); // Important pour éviter les fuites de mémoire
+    super.dispose();
   }
 
   Future<void> _loadAllAssets() async {
@@ -160,21 +176,35 @@ class _MapEditorPageState extends State<MapEditorPage> {
       return;
     }
 
+    // 1. Murs (inchangé)
     final walls = _gridData.entries
       .where((e) => e.value == TileType.stoneWall || e.value == TileType.tree)
       .map((e) => e.key).toSet();
-
     final closedDoors = _objects.values
       .where((obj) => obj.type == ObjectType.door && obj.state == false)
       .map((obj) => "${obj.position.x},${obj.position.y}");
-    
     final allBlockers = walls.union(closedDoors.toSet());
 
-    final tokens = _tokenPositions.values.toList();
+    // 2. Sources de vision (Pions + Lumières)
+    List<VisionSource> sources = [];
+
+    // A. Les Pions (Vision définie par les paramètres globaux)
+    for (var pos in _tokenPositions.values) {
+      sources.add(VisionSource(pos, _visionRange));
+    }
+
+    // B. Les Objets Lumineux (Torches, Feux...)
+    for (var obj in _objects.values) {
+      if (obj.lightRadius > 0) {
+        sources.add(VisionSource(obj.position, obj.lightRadius.toInt()));
+      }
+    }
+
     final visible = FogOfWarService.calculateVisibility(
-      tokens: tokens, walls: allBlockers, 
-      maxCols: _mapConfig.widthInCells, maxRows: _mapConfig.heightInCells, 
-      visionRange: _visionRange // <--- UTILISATION DU PARAMÈTRE
+      sources: sources, // <--- On passe la liste combinée
+      walls: allBlockers, 
+      maxCols: _mapConfig.widthInCells, 
+      maxRows: _mapConfig.heightInCells
     );
     setState(() { _visibleCells = visible; _exploredCells.addAll(visible); });
   }
@@ -240,11 +270,20 @@ class _MapEditorPageState extends State<MapEditorPage> {
       }
       else if (_selectedTool == EditorTool.object && details is PointerDownEvent) {
         if (!_objects.containsKey(key) && _gridData[key] != TileType.stoneWall) {
+
+          double lightRad = 0;
+          int lightCol = 0xFFFFA726; // Orange
+          
+          if (_selectedObjectType == ObjectType.torch) {
+            lightRad = 3.0; // Torche éclaire à 3 cases
+          }
           _objects[key] = WorldObject(
             id: DateTime.now().millisecondsSinceEpoch.toString(),
             position: point,
             type: _selectedObjectType,
-            state: false 
+            state: false,
+            lightRadius: lightRad, // <---
+            lightColor: lightCol,
           );
           changed = true;
         }
@@ -258,31 +297,34 @@ class _MapEditorPageState extends State<MapEditorPage> {
       }
 
       else if (_selectedTool == EditorTool.rotate && details is PointerDownEvent) {
-    bool rotated = false;
+        bool changedHere = false; // Renommé pour éviter conflit
+        
+        if (_objects.containsKey(key)) {
+          final obj = _objects[key]!;
+          // MODULO 8 pour 8 directions (0 à 7)
+          final newRot = (obj.rotation + 1) % 8; 
+          _objects[key] = obj.copyWith(rotation: newRot);
+          changedHere = true;
+        }
+        else if (_gridData.containsKey(key)) {
+          final currentRot = _tileRotations[key] ?? 0;
+          // Gardons les MURS sur 6 directions car l'hexagone a 6 cotés
+          final newRot = (currentRot + 1) % 6; 
+          _tileRotations[key] = newRot;
+          changedHere = true;
+        }
 
-    // Priorité 1 : Tourner un Objet s'il y en a un
-    if (_objects.containsKey(key)) {
-      final obj = _objects[key]!;
-      final newRot = (obj.rotation + 1) % 6; // 0->1->2...->5->0
-      _objects[key] = obj.copyWith(rotation: newRot);
-      rotated = true;
+        if (changedHere) {
+          changed = true;
+          setState(() {});
+        }
+      }
 
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Rotation Objet: ${newRot * 60}°"), duration: const Duration(milliseconds: 200)));
-    }
-
-    // Priorité 2 : Tourner la Tuile (Sol/Mur)
-    else if (_gridData.containsKey(key)) {
-      final currentRot = _tileRotations[key] ?? 0;
-      final newRot = (currentRot + 1) % 6;
-      _tileRotations[key] = newRot;
-      rotated = true;
-    }
-
-    if (rotated) changed = true;
-  }
-
-
+      else if (_selectedTool == EditorTool.fill && details is PointerDownEvent) {
+         _floodFill(point, _selectedTileType);
+         changed = true;
+      }
+      
       if (changed) { 
         setState(() {}); 
         _recalculateFog(); 
@@ -376,7 +418,51 @@ class _MapEditorPageState extends State<MapEditorPage> {
     );
   }
 
-  
+  void _floodFill(Point<int> startPoint, TileType newType) {
+    final startKey = "${startPoint.x},${startPoint.y}";
+    final targetType = _gridData[startKey]; // Le type qu'on veut remplacer (peut être null)
+
+    // Si on clique sur une case qui a déjà la bonne couleur, on ne fait rien
+    if (targetType == newType) return;
+
+    final Queue<Point<int>> queue = Queue();
+    queue.add(startPoint);
+    
+    // Pour éviter les boucles infinies
+    final Set<String> visited = {startKey};
+
+    while (queue.isNotEmpty) {
+      final p = queue.removeFirst();
+      final key = "${p.x},${p.y}";
+      
+      // On peint
+      _gridData[key] = newType;
+      // Si on peint un mur sur un objet, on vire l'objet
+      if (newType == TileType.stoneWall && _objects.containsKey(key)) {
+        _objects.remove(key);
+      }
+
+      // Voisins
+      for (var neighbor in HexUtils.getNeighbors(p)) {
+        // Vérification des limites de la carte
+        if (neighbor.x < 0 || neighbor.x >= _mapConfig.widthInCells || 
+            neighbor.y < 0 || neighbor.y >= _mapConfig.heightInCells) {
+          continue;
+        }
+
+        final nKey = "${neighbor.x},${neighbor.y}";
+        final nType = _gridData[nKey];
+
+        // Si le voisin est du même type que la case de départ (ou vide si départ vide)
+        if (!visited.contains(nKey) && nType == targetType) {
+          visited.add(nKey);
+          queue.add(neighbor);
+        }
+      }
+    }
+    setState(() {}); // Rafraîchir
+    _recalculateFog(); // Mettre à jour les murs potentiels
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -460,6 +546,7 @@ class _MapEditorPageState extends State<MapEditorPage> {
                       ));
                     }
                   },
+                  
                   builder: (context, candidateData, rejectedData) {
                     return InteractiveViewer(
                       transformationController: _transformationController,
@@ -485,6 +572,8 @@ class _MapEditorPageState extends State<MapEditorPage> {
                           mapMargin: _mapMargin,
                           totalWidth: w, totalHeight: h,
                           tileRotations: _tileRotations,
+                          animation: _animController, // <--- NOUVEAU
+                          
                         ),
                       ),
                     );
@@ -560,6 +649,7 @@ class MapCanvasWidget extends StatelessWidget {
   final double mapMargin;
   final double totalWidth;
   final double totalHeight;
+  final Animation<double> animation;
 
   const MapCanvasWidget({
     super.key, 
@@ -567,7 +657,7 @@ class MapCanvasWidget extends StatelessWidget {
     required this.gridData, required this.tokenPositions, required this.objects, 
     required this.tokenDetails, required this.visibleCells, required this.exploredCells, 
     required this.reachableCells, required this.fogEnabled, required this.tileRotations,
-    required this.hexRadius, required this.mapMargin, required this.totalWidth, required this.totalHeight,
+    required this.hexRadius, required this.mapMargin, required this.totalWidth, required this.totalHeight, required this.animation,
   });
 
   @override
@@ -581,7 +671,7 @@ class MapCanvasWidget extends StatelessWidget {
           Positioned.fill(child: CustomPaint(painter: BackgroundPatternPainter(backgroundColor: mapConfig.backgroundColor, patternImage: assets['parchment']))),
           
           RepaintBoundary(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: TileLayerPainter(
-            config: mapConfig, assets: assets, gridData: gridData, radius: hexRadius, offset: offset, tileRotations: tileRotations
+            config: mapConfig, assets: assets, gridData: gridData, radius: hexRadius, offset: offset, tileRotations: tileRotations, animationValue: animation.value
           ))),
           
           RepaintBoundary(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: ObjectPainter(
@@ -599,9 +689,31 @@ class MapCanvasWidget extends StatelessWidget {
           ))),
 
           if (fogEnabled)
-            IgnorePointer(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: FogPainter(
+          IgnorePointer(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: FogPainter(
               config: mapConfig, visibleCells: visibleCells, exploredCells: exploredCells, radius: hexRadius, offset: offset
             ))),
+          RepaintBoundary(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: LightingPainter(
+            objects: objects, radius: hexRadius, offset: offset
+          ))),
+
+          AnimatedBuilder(
+            animation: animation,
+            builder: (context, child) {
+              return CustomPaint(
+                size: Size(totalWidth, totalHeight), 
+                painter: TileLayerPainter(
+                  config: mapConfig, 
+                  assets: assets, 
+                  gridData: gridData, 
+                  tileRotations: tileRotations,
+                  radius: hexRadius, 
+                  offset: offset,
+                  animationValue: animation.value, // <--- On passe la valeur (0.0 à 1.0)
+                )
+              );
+              }
+          ),
+
         ],
       ),
     );

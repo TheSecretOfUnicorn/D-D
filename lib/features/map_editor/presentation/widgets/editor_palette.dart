@@ -135,6 +135,7 @@ class _EditorPaletteState extends State<EditorPalette> with SingleTickerProvider
       children: [
         _ToolIconButton(Icons.pan_tool, "Vue", EditorTool.move, widget.selectedTool, widget.onToolChanged),
         _ToolIconButton(Icons.loop, "Tourner", EditorTool.rotate, widget.selectedTool, widget.onToolChanged),
+        _ToolIconButton(Icons.format_color_fill, "Remplir", EditorTool.fill, widget.selectedTool, widget.onToolChanged),
         _ToolIconButton(Icons.person, "Pions", EditorTool.token, widget.selectedTool, widget.onToolChanged),
         _ToolIconButton(Icons.cleaning_services, "Gomme", EditorTool.eraser, widget.selectedTool, widget.onToolChanged),
         

@@ -12,8 +12,9 @@ class MapDataModel {
   
   // Données de la carte
   final Map<String, TileType> gridData;
+  final Map<String, int> tileRotations; // Clé "x,y" -> Rotation (0-5)
   final Map<String, WorldObject> objects;
-  final Map<String, int> tileRotations;
+  final Map<String, String> customAssets; 
 
   // Paramètres de jeu
   final int visionRange;
@@ -24,10 +25,11 @@ class MapDataModel {
     required this.name,
     required this.config,
     required this.gridData,
+    this.tileRotations = const {},
     this.objects = const {},
+    this.customAssets = const {},
     this.visionRange = 8,
     this.movementRange = 6,
-    this.tileRotations = const {},
   });
 
   // --- SÉRIALISATION JSON (Vers le serveur) ---
@@ -36,32 +38,29 @@ class MapDataModel {
     return {
       'id': id,
       'name': name,
-      // On stocke les dimensions à la racine pour accès facile
       'width': config.widthInCells,
       'height': config.heightInCells,
       
-      // Tout le reste va dans un champ 'json_data' flexible
       'json_data': {
-        // 1. Configuration (Couleurs, Taille case)
         'config': {
           'cellSize': config.cellSize,
-          'bgColor': config.backgroundColor, // On stocke l'entier de la couleur
-          'gridColor': config.gridColor,
+          // ⚠️ IMPORTANT : On utilise .value pour sauvegarder l'entier de la couleur
+          'bgColor': config.backgroundColor.toARGB32(), 
+          'gridColor': config.gridColor.toARGB32(),     
         },
         
-        // 2. Règles de jeu
         'settings': {
           'visionRange': visionRange,
           'movementRange': movementRange,
         },
 
+        'assets': customAssets,
+
         // 3. Grille (Tuiles)
-        // On convertit la Map<String, TileType> en liste d'objets simple
         'grid': gridData.entries.map((e) => {
-          'k': e.key, // Coordonnée "x,y"
-          't': e.value.index, // Index de l'enum (0, 1, 2...) pour prendre moins de place
-          'r': tileRotations[e.key] ?? 0 // Rotation associée à la tuile
-          
+          'k': e.key,
+          't': e.value.index, // ✅ CORRECT : e.value.index (pas e.index)
+          'r': tileRotations[e.key] ?? 0
         }).toList(),
 
         // 4. Objets Interactifs
@@ -69,9 +68,11 @@ class MapDataModel {
           'id': obj.id,
           'x': obj.position.x,
           'y': obj.position.y,
-          'type': obj.type.index, // Index enum ObjectType
+          'type': obj.type.index,
           'state': obj.state,
-          'rotation': obj.rotation,
+          'rot': obj.rotation,
+          'lr': obj.lightRadius,
+          'lc': obj.lightColor,
         }).toList(),
       },
     };
@@ -80,12 +81,17 @@ class MapDataModel {
   // --- DÉSÉRIALISATION JSON (Depuis le serveur) ---
 
   factory MapDataModel.fromJson(Map<String, dynamic> json) {
-    // Extraction sécurisée des données
     final jsonData = json['json_data'] ?? {};
     final configData = jsonData['config'] ?? {};
     final settingsData = jsonData['settings'] ?? {};
 
-    // 1. Reconstruction de la Config
+    // Chargement Assets
+    final Map<String, String> loadedAssets = {};
+    if (jsonData['assets'] != null) {
+      (jsonData['assets'] as Map).forEach((k, v) => loadedAssets[k.toString()] = v.toString());
+    }
+
+    // Config
     final config = MapConfig(
       widthInCells: json['width'] ?? 20,
       heightInCells: json['height'] ?? 16,
@@ -94,7 +100,7 @@ class MapDataModel {
       gridColor: Color(configData['gridColor'] ?? 0x4D5C4033),
     );
 
-    // 2. Reconstruction de la Grille
+    // Grille & Rotations
     final Map<String, TileType> grid = {};
     final Map<String, int> rotations = {};
     if (jsonData['grid'] != null) {
@@ -102,14 +108,16 @@ class MapDataModel {
         final key = item['k'];
         final typeIndex = item['t'];
         final rot = item['r'] ?? 0;
+        
+        // ✅ CORRECT : TileType (Singulier)
         if (key != null && typeIndex != null && typeIndex < TileType.values.length) {
           grid[key] = TileType.values[typeIndex];
+          if (rot > 0) rotations[key] = rot;
         }
-        if (rot > 0) rotations[key] = rot; // On ne stocke que si rotation > 0
       }
     }
 
-    // 3. Reconstruction des Objets
+    // Objets
     final Map<String, WorldObject> objs = {};
     if (jsonData['objects'] != null) {
       for (var item in jsonData['objects']) {
@@ -117,7 +125,6 @@ class MapDataModel {
         final y = item['y'] ?? 0;
         final typeIndex = item['type'] ?? 0;
         
-        // On recrée l'objet
         final obj = WorldObject(
           id: item['id'] ?? DateTime.now().toString(),
           position: Point(x, y),
@@ -125,22 +132,24 @@ class MapDataModel {
               ? ObjectType.values[typeIndex] 
               : ObjectType.door,
           state: item['state'] ?? false,
-          rotation: item['rot'] ?? 0, //
+          rotation: item['rot'] ?? 0,
+          lightRadius: (item['lr'] ?? 0.0).toDouble(),
+          lightColor: item['lc'] ?? 0xFFFFA726,
         );
-        
         objs["$x,$y"] = obj;
       }
     }
 
     return MapDataModel(
-      id: json['id']?.toString(), // S'assure que c'est une String
+      id: json['id']?.toString(),
       name: json['name'] ?? "Carte sans nom",
       config: config,
       gridData: grid,
+      tileRotations: rotations,
       objects: objs,
+      customAssets: loadedAssets,
       visionRange: settingsData['visionRange'] ?? 8,
       movementRange: settingsData['movementRange'] ?? 6,
-      tileRotations: rotations,
     );
   }
 }

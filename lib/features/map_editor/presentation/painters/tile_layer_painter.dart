@@ -13,7 +13,7 @@ class TileLayerPainter extends CustomPainter {
   final double radius;
   final Offset offset;
   final Map<String, int> tileRotations;
-
+  final double animationValue;
 
   TileLayerPainter({
     required this.config,
@@ -22,6 +22,8 @@ class TileLayerPainter extends CustomPainter {
     required this.tileRotations,
     required this.radius,
     required this.offset,
+    required this.animationValue, // Nouvelle variable pour l'animation
+
   });
 
   @override
@@ -79,6 +81,24 @@ class TileLayerPainter extends CustomPainter {
         final srcRect = Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble());
         final dstRect = Rect.fromCenter(center: Offset.zero, width: radius * 2.02, height: radius * 2.02);
         canvas.drawImageRect(img, srcRect, dstRect, paint);
+        // EFFET EAU : Scintillement Bleu/Blanc
+        if (type == TileType.water) {
+          final opacity = 0.1 + (animationValue * 0.15); // Varie entre 0.1 et 0.25
+          canvas.drawRect(
+            dstRect, 
+            Paint()..color = Colors.white.withValues(alpha: 0.1)..blendMode = BlendMode.overlay
+          );
+        }
+        
+        // EFFET LAVE : Pulsation Rouge/Jaune (Chaleur)
+        if (type == TileType.lava) {
+          final opacity = 0.2 + (animationValue * 0.3); // Varie entre 0.2 et 0.5
+          // On dessine un carré rouge/orange par dessus avec un mode de fusion
+          canvas.drawRect(
+            dstRect, 
+            Paint()..color = Colors.redAccent.withValues(alpha: 0.1)..blendMode = BlendMode.hardLight
+          );
+        }
       } else {
         canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: radius * 2, height: radius * 2), Paint()..color = fallbackColor);
       }
@@ -88,5 +108,7 @@ class TileLayerPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant TileLayerPainter oldDelegate) => true;
+  bool shouldRepaint(covariant TileLayerPainter oldDelegate) => 
+      oldDelegate.animationValue != animationValue || 
+      oldDelegate.gridData != gridData;
 }
