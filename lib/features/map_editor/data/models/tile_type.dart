@@ -1,6 +1,15 @@
 enum TileType {
-  floor,
-  wall,
-  lava,
+  // Sols
+  stoneFloor,
+  woodFloor,
+  grass,
+  dirt,
+  
+  // Murs / Obstacles
+  stoneWall,
+  tree,
+  
+  // Liquides (Animés plus tard ?)
   water,
+  lava
 }
