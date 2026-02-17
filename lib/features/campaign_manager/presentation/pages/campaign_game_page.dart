@@ -1,21 +1,25 @@
-import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Pour stocker le choix du perso
+
+// --- MODELS ---
 import '../../data/models/campaign_model.dart';
-import '../../data/repositories/campaign_repository.dart';
-import '../../../character_sheet/data/repositories/character_repository_impl.dart';
 import '../../../character_sheet/data/models/character_model.dart';
+
+// --- REPOSITORIES ---
+import '../../../character_sheet/data/repositories/character_repository_impl.dart';
+import '../../data/repositories/campaign_repository.dart';
+import '../../../map_editor/data/repositories/map_repository.dart';
+
+// --- PAGES ---
+import '../../../map_editor/presentation/pages/maps_list_page.dart';
+import '../../../map_editor/presentation/pages/map_editor_page.dart';
 import '../../../character_sheet/presentation/pages/character_sheet_page.dart';
-import '../../../rules_engine/data/repositories/rules_repository_impl.dart';
-import '../../../combat/presentation/pages/combat_page.dart';
-import '../../../campaign_manager/presentation/pages/journal_page.dart';
-
-
-
+import '../../../rules_engine/data/repositories/rules_repository_impl.dart'; // Pour charger les règles
 
 class CampaignGamePage extends StatefulWidget {
   final CampaignModel campaign;
+
   const CampaignGamePage({super.key, required this.campaign});
 
   @override
@@ -23,191 +27,161 @@ class CampaignGamePage extends StatefulWidget {
 }
 
 class _CampaignGamePageState extends State<CampaignGamePage> {
+  final MapRepository _mapRepo = MapRepository();
   final CampaignRepository _campRepo = CampaignRepository();
   final CharacterRepositoryImpl _charRepo = CharacterRepositoryImpl();
   
-  final TextEditingController _msgController = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
-
-  List<Map<String, dynamic>> _logs = [];
-  List<Map<String, dynamic>> _members = []; 
-  
-  Timer? _refreshTimer;
-  late bool _allowDice;
-  String? _currentUserId;
+  // État
+  final List<String> _logs = []; // Historique des dés
+  CharacterModel? _myCharacter; // Mon personnage actif pour cette campagne
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _allowDice = widget.campaign.allowDice;
-    _initSession();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      _fetchLogs();
-      _fetchMembers();
-    });
+    _loadMyCharacter();
+    // TODO: Ici on pourrait aussi s'abonner aux sockets pour recevoir les dés des autres
   }
 
-  @override
-  void dispose() {
-    _refreshTimer?.cancel();
-    _msgController.dispose();
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _initSession() async {
+  // --- GESTION PERSONNAGE ---
+  
+  Future<void> _loadMyCharacter() async {
+    // Dans une version avancée, on demanderait au serveur "Quel est mon perso pour cette campagne ?"
+    // Pour l'instant, on va charger le dernier perso sélectionné localement ou demander à l'user
     final prefs = await SharedPreferences.getInstance();
-    _currentUserId = prefs.get('user_id')?.toString();
-    await _fetchLogs();
-    await _fetchMembers();
-    _checkMyCharacter();
+    final charId = prefs.getString('campaign_${widget.campaign.id}_char');
+    
+    if (charId != null) {
+      final char = await _charRepo.getAllCharacters(charId); // Méthode à vérifier dans ton repo
+      if (mounted) setState(() => _myCharacter = char.first);
+    }
   }
 
-  Future<void> _fetchLogs() async {
-    try {
-      final logs = await _campRepo.getLogs(widget.campaign.id);
-      if (mounted) setState(() => _logs = logs);
-    } catch (_) {}
-  }
-
-  Future<void> _fetchMembers() async {
-    try {
-      final members = await _campRepo.getMembers(widget.campaign.id);
-      if (mounted) setState(() => _members = members);
-    } catch (_) {}
-  }
-
-  void _checkMyCharacter() {
-    if (_currentUserId == null || widget.campaign.role == 'GM') return;
-    final myEntry = _members.firstWhere((m) => m['user_id'].toString() == _currentUserId, orElse: () => {});
-    if (myEntry.isNotEmpty && myEntry['char_id'] == null) _showCharacterSelector();
-  }
-
-  void _showCharacterSelector() async {
-    final myCharacters = await _charRepo.getAllCharacters();
+  void _selectCharacter() async {
+    // 1. Charger tous les persos locaux
+    final allChars = await _charRepo.getAllCharacters("");
+    
     if (!mounted) return;
+
+    // 2. Afficher la liste
     showDialog(
       context: context,
-      barrierDismissible: false, 
       builder: (ctx) => AlertDialog(
-        title: const Text("Qui jouez-vous ?"),
+        backgroundColor: const Color(0xFF252525),
+        title: const Text("Choisir mon Héros", style: TextStyle(color: Colors.white)),
         content: SizedBox(
           width: double.maxFinite,
-          child: myCharacters.isEmpty 
-            ? const Text("Vous n'avez aucun personnage. Créez-en un d'abord !") 
-            : ListView.builder(
-                shrinkWrap: true,
-                itemCount: myCharacters.length,
-                itemBuilder: (ctx, i) {
-                  final c = myCharacters[i];
-                  return ListTile(
-                    leading: const Icon(Icons.person),
-                    title: Text(c.name),
-                    subtitle: Text("Niveau ${c.stats['level'] ?? 1}"),
-                    onTap: () {
-                      _selectCharacter(c);
-                      Navigator.pop(ctx);
-                    },
-                  );
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: allChars.length,
+            itemBuilder: (ctx, i) {
+              final c = allChars[i];
+              return ListTile(
+                title: Text(c.name, style: const TextStyle(color: Colors.white)),
+                subtitle: Text("Niveau ${c.stats['level'] ?? 1}", style: const TextStyle(color: Colors.grey)),
+                leading: const CircleAvatar(child: Icon(Icons.person)),
+                onTap: () async {
+                  // Sauvegarder le choix
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setString('campaign_${widget.campaign.id}_char', c.id);
+                  
+                  // Envoyer au serveur (Optionnel pour l'instant mais recommandé)
+                  await _campRepo.selectCharacter(widget.campaign.id, int.parse(c.id) as String); 
+
+                  setState(() => _myCharacter = c);
+                  Navigator.pop(ctx);
                 },
-              ),
+              );
+            },
+          ),
         ),
       ),
     );
   }
 
-  void _selectCharacter(CharacterModel c) async {
-    await _campRepo.selectCharacter(widget.campaign.id, c.id);
-    _fetchMembers(); 
-    _campRepo.sendLog(widget.campaign.id, "a rejoint la table en tant que ${c.name} !");
-  }
-
-  void _openMySheet() async {
-    if (_currentUserId == null) return;
-    final myEntry = _members.firstWhere((m) => m['user_id'].toString() == _currentUserId, orElse: () => {});
-    if (myEntry.isEmpty || myEntry['char_data'] == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Aucun personnage sélectionné.")));
-      return;
-    }
-    final character = CharacterModel.fromJson({...myEntry['char_data'], 'id': myEntry['char_id'], 'name': myEntry['char_name']});
+  void _openCharacterSheet() async {
+    if (_myCharacter == null) return;
+    
+    // On charge les règles par défaut pour afficher la fiche correctement
     final rules = await RulesRepositoryImpl().loadDefaultRules();
-    if (mounted) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => CharacterSheetPage(character: character, rules: rules, campaignId: widget.campaign.id)));
-    }
+    
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CharacterSheetPage(character: _myCharacter!, rules: rules),
+      ),
+    );
   }
 
-  void _showGMActionDialog(Map<String, dynamic> member) {
-    final name = member['char_name'];
-    final stats = member['char_data']['stats'] ?? {};
-    int currentHp = stats['hp_current'] ?? 0;
-    int maxHp = stats['hp_max'] ?? 10;
-    final ctrl = TextEditingController();
+  // --- GESTION DÉS & LOGS ---
 
+  void _addLog(String message, {Color color = Colors.white}) {
+    setState(() {
+      _logs.insert(0, "${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2,'0')} - $message");
+    });
+  }
+
+  void _showDiceRoller() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text("Action sur $name"),
+        backgroundColor: const Color(0xFF252525),
+        title: const Text("Lancer de Dés 🎲", style: TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text("PV: $currentHp / $maxHp", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            TextField(controller: ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Valeur")),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                  icon: const Icon(Icons.flash_on),
-                  label: const Text("Dégâts"),
-                  onPressed: () => _applyHPChange(member, -1 * (int.tryParse(ctrl.text) ?? 0), ctx),
-                ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                  icon: const Icon(Icons.favorite),
-                  label: const Text("Soins"),
-                  onPressed: () => _applyHPChange(member, (int.tryParse(ctrl.text) ?? 0), ctx),
-                ),
-              ],
-            )
+            Wrap(
+              spacing: 10, runSpacing: 10, alignment: WrapAlignment.center,
+              children: [4, 6, 8, 10, 12, 20, 100].map((faces) {
+                return ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo),
+                  onPressed: () {
+                    final result = Random().nextInt(faces) + 1;
+                    Navigator.pop(ctx);
+                    _processDiceResult(faces, result);
+                  },
+                  child: Text("d$faces", style: const TextStyle(color: Colors.white)),
+                );
+              }).toList(),
+            ),
           ],
         ),
       ),
     );
   }
 
-  void _applyHPChange(Map<String, dynamic> member, int amount, BuildContext dialogContext) async {
-    if (amount == 0) return;
-    Navigator.pop(dialogContext);
-    final charId = member['char_id'].toString();
-    final stats = member['char_data']['stats'] ?? {};
-    int currentHp = stats['hp_current'] ?? 0;
-    int newHp = currentHp + amount;
-    await _campRepo.updateMemberStat(widget.campaign.id, charId, 'hp_current', newHp);
-    final action = amount < 0 ? "infligé ${-amount} dégâts à" : "rendu $amount PV à";
-    _campRepo.sendLog(widget.campaign.id, "MJ a $action ${member['char_name']} !");
-    _fetchMembers();
+  void _processDiceResult(int faces, int result) {
+    String msg = "A lancé 1d$faces : $result";
+    Color col = Colors.white;
+
+    if (faces == 20) {
+      if (result == 20) { msg += " (CRITIQUE !)"; col = Colors.greenAccent; }
+      else if (result == 1) { msg += " (ÉCHEC !)"; col = Colors.redAccent; }
+    }
+    _addLog(msg, color: col);
   }
 
-  void _toggleDice(bool value) async {
-    setState(() => _allowDice = value);
-    bool success = await _campRepo.updateSettings(widget.campaign.id, value);
-    if (!success && mounted) setState(() => _allowDice = !value);
-  }
+  // --- ACTIONS CARTE ---
 
-  void _sendMessage() async {
-    if (_msgController.text.trim().isEmpty) return;
-    await _campRepo.sendLog(widget.campaign.id, _msgController.text, type: 'MSG');
-    _msgController.clear();
-    _fetchLogs();
-  }
+  void _onMapClicked(bool isGM) async {
+    if (isGM) {
+      // MJ : Liste des cartes
+      Navigator.push(context, MaterialPageRoute(builder: (_) => MapsListPage(campaignId: widget.campaign.id, isGM: true)));
+    } else {
+      // JOUEUR : Rejoindre active
+      setState(() => _isLoading = true);
+      final activeMapId = await _mapRepo.getActiveMapId(widget.campaign.id);
+      setState(() => _isLoading = false);
 
-  void _rollDice() async {
-    if (!_allowDice) return;
-    final result = Random().nextInt(20) + 1;
-    await _campRepo.sendLog(widget.campaign.id, "a lancé un D20", type: 'DICE', resultValue: result);
-    _fetchLogs();
+      if (activeMapId != null) {
+        if (!mounted) return;
+        Navigator.push(context, MaterialPageRoute(builder: (_) => MapEditorPage(campaignId: widget.campaign.id, mapId: activeMapId)));
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Le MJ n'a activé aucune carte pour le moment.")));
+      }
+    }
   }
 
   @override
@@ -216,125 +190,139 @@ class _CampaignGamePageState extends State<CampaignGamePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(widget.campaign.title),
-            Text("Code: ${widget.campaign.inviteCode}", style: const TextStyle(fontSize: 10)),
-          ],
-        ),
+        title: Text(widget.campaign.title),
+        backgroundColor: const Color(0xFF1a1a1a),
         actions: [
-          // 1. Bouton Joueur : Ma Fiche
-          if (!isGM) IconButton(icon: const Icon(Icons.assignment_ind), tooltip: "Ma Fiche", onPressed: _openMySheet),
-          
-          // 2. 👇 BOUTON COMBAT (Le Nouveau !)
-          IconButton(
-            icon: const Icon(Icons.flash_on, color: Colors.orangeAccent),
-            tooltip: "Combat Tracker",
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => CombatPage(campaignId: widget.campaign.id, isGM: isGM)));
-            },
+          Chip(
+            label: Text(isGM ? "MJ" : "Joueur"),
+            backgroundColor: isGM ? Colors.deepOrange : Colors.indigo,
+            labelStyle: const TextStyle(color: Colors.white),
           ),
-          // Dans campaign_game_page.dart (Actions)
-            IconButton(
-              icon: const Icon(Icons.menu_book, color: Colors.brown), // Icône Livre
-              tooltip: "Journal",
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => JournalPage(
-                      campaignId: widget.campaign.id,
-                      isGM: widget.campaign.role == 'GM', // isGM passé automatiquement
-                    ),
-                  ),
-                );
-              },
-            ),
-          // 3. Switch MJ : Activer Dés
-          if (isGM) Switch(value: _allowDice, activeThumbColor: Colors.greenAccent, onChanged: _toggleDice),
-
-          // 4. Drawer : Liste des Joueurs
-          Builder(builder: (context) => IconButton(icon: const Icon(Icons.people), onPressed: () => Scaffold.of(context).openEndDrawer())),
+          const SizedBox(width: 10),
         ],
-        
       ),
-      endDrawer: Drawer(
-        child: Column(
-          children: [
-            DrawerHeader(
-              decoration: const BoxDecoration(color: Colors.indigo),
-              child: Center(child: Text("Joueurs (${_members.length})", style: const TextStyle(color: Colors.white, fontSize: 20))),
-            ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _members.length,
-                itemBuilder: (ctx, i) {
-                  final m = _members[i];
-                  final hasChar = m['char_id'] != null;
-                  final stats = hasChar ? m['char_data']['stats'] : {};
-                  final hp = stats != null ? stats['hp_current'] : '?';
-                  final maxHp = stats != null ? stats['hp_max'] : '?';
-                  return ListTile(
-                    leading: CircleAvatar(backgroundColor: m['role'] == 'GM' ? Colors.red : Colors.blue, child: Text(m['username'][0].toUpperCase())),
-                    title: Text(m['username']),
-                    subtitle: Text(hasChar ? "${m['char_name']}" : "Spectateur"),
-                    trailing: hasChar ? Text("$hp / $maxHp PV", style: TextStyle(fontWeight: FontWeight.bold, color: (hp is int && hp < 5) ? Colors.red : Colors.green)) : null,
-                    onTap: (isGM && hasChar) ? () => _showGMActionDialog(m) : null,
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
+      backgroundColor: const Color(0xFF121212),
       body: Column(
         children: [
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              reverse: true,
-              padding: const EdgeInsets.all(16),
-              itemCount: _logs.length,
-              itemBuilder: (ctx, i) {
-                final log = _logs[i];
-                final isDice = log['type'] == 'DICE';
-                final isMe = log['user_id'].toString() == _currentUserId;
-                return Align(
-                  alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isDice ? Colors.amber[100] : (isMe ? Colors.indigo[100] : Colors.grey[200]),
-                      borderRadius: BorderRadius.circular(8),
-                      border: isDice ? Border.all(color: Colors.orange) : null,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(log['username'] ?? '?', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                        if (isDice) Text("${log['result_value']} (D20)", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))
-                        else Text(log['content'] ?? ""),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
+          // 1. ZONE PERSONNAGE (Haut)
           Container(
-            padding: const EdgeInsets.all(8),
-            color: Colors.white,
+            padding: const EdgeInsets.all(12),
+            color: const Color(0xFF252525),
             child: Row(
               children: [
-                IconButton(icon: const Icon(Icons.casino), onPressed: _allowDice ? _rollDice : null),
-                Expanded(child: TextField(controller: _msgController, onSubmitted: (_) => _sendMessage())),
-                IconButton(icon: const Icon(Icons.send), onPressed: _sendMessage),
+                CircleAvatar(
+                  radius: 25,
+                  backgroundColor: Colors.grey[800],
+                  child: Icon(isGM ? Icons.security : Icons.person, color: Colors.white),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isGM ? "Maître du Jeu" : (_myCharacter?.name ?? "Spectateur"),
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      if (!isGM && _myCharacter == null)
+                        GestureDetector(
+                          onTap: _selectCharacter,
+                          child: const Text("Cliquez pour choisir un perso", style: TextStyle(color: Colors.blueAccent, decoration: TextDecoration.underline)),
+                        ),
+                      if (!isGM && _myCharacter != null)
+                         const Text("Prêt à l'aventure", style: TextStyle(color: Colors.greenAccent, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                if (!isGM && _myCharacter != null)
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.description, size: 16),
+                    label: const Text("Fiche"),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                    onPressed: _openCharacterSheet,
+                  ),
+                if (!isGM && _myCharacter == null)
+                   IconButton(icon: const Icon(Icons.person_add, color: Colors.blueAccent), onPressed: _selectCharacter),
+              ],
+            ),
+          ),
+
+          // 2. ZONE ACTIONS (Milieu)
+          Expanded(
+            child: _isLoading 
+              ? const Center(child: CircularProgressIndicator()) 
+              : GridView.count(
+                  padding: const EdgeInsets.all(16),
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                  childAspectRatio: 1.3,
+                  children: [
+                    _DashboardCard(
+                      icon: Icons.map, 
+                      label: isGM ? "Gérer Cartes" : "Rejoindre Plateau", 
+                      color: Colors.blue, 
+                      onTap: () => _onMapClicked(isGM)
+                    ),
+                    _DashboardCard(icon: Icons.casino, label: "Lancer Dés", color: Colors.purple, onTap: _showDiceRoller),
+                    _DashboardCard(icon: Icons.book, label: "Journal", color: Colors.amber, onTap: (){}),
+                    _DashboardCard(icon: Icons.settings, label: "Options", color: Colors.grey, onTap: (){}),
+                  ],
+                ),
+          ),
+
+          // 3. ZONE LOGS (Bas - Console de texte)
+          Container(
+            height: 150,
+            decoration: const BoxDecoration(
+              color: Color(0xFF000000),
+              border: Border(top: BorderSide(color: Colors.white24)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: Text("JOURNAL DE JEU", style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold)),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    itemCount: _logs.length,
+                    itemBuilder: (ctx, i) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(_logs[i], style: const TextStyle(color: Colors.white70, fontFamily: 'Courier', fontSize: 13)),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _DashboardCard extends StatelessWidget {
+  final IconData icon; final String label; final Color color; final VoidCallback onTap;
+  const _DashboardCard({required this.icon, required this.label, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 4, color: const Color(0xFF2C2C2C),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        onTap: onTap, borderRadius: BorderRadius.circular(12),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 32, color: color),
+            const SizedBox(height: 8),
+            Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ],
+        ),
       ),
     );
   }

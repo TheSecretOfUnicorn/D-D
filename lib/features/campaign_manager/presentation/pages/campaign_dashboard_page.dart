@@ -1,9 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Pour le presse-papier
 
 // --- Imports ---
-import '../../../../core/services/data_sharing_service.dart';
 import '../../../character_sheet/data/models/character_model.dart';
 import '../../../character_sheet/data/repositories/character_repository_impl.dart';
 import '../../../character_sheet/presentation/pages/character_sheet_page.dart';
@@ -28,7 +26,6 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
   // --- Dépendances ---
   final RulesRepositoryImpl _rulesRepo = RulesRepositoryImpl();
   final CharacterRepositoryImpl _charRepo = CharacterRepositoryImpl();
-  final DataSharingService _sharingService = DataSharingService();
   final CampaignRepository _campaignRepo = CampaignRepository();
 
   // --- Contrôleurs & État ---
@@ -51,30 +48,37 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
     super.dispose();
   }
 
-  // --- CHARGEMENT ---
-  Future<void> _loadData() async {
+ Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
-      final results = await Future.wait([
-        _rulesRepo.loadDefaultRules(),
-        _charRepo.getAllCharacters(),
-        _campaignRepo.getAllCampaigns(),
-      ]);
+      // 1. On charge les règles (indispensable)
+      final rules = await _rulesRepo.loadDefaultRules();
+
+      // 2. On charge les personnages
+      // On utilise 'cast<CharacterModel>' pour forcer le type proprement
+      final charsRaw = await _charRepo.getAllCharacters("");
+      final chars = charsRaw.cast<CharacterModel>().toList();
+
+      // 3. On charge les campagnes
+      final campsRaw = await _campaignRepo.getAllCampaigns();
+      final camps = campsRaw.cast<CampaignModel>().toList();
 
       if (mounted) {
         setState(() {
-          _loadedRules = results[0] as RuleSystemModel;
-          _characters = results[1] as List<CharacterModel>;
-          _campaigns = results[2] as List<CampaignModel>;
+          _loadedRules = rules;
+          _characters = chars;
+          _campaigns = camps;
           _isLoading = false;
         });
       }
     } catch (e) {
+      debugPrint("❌ Erreur chargement dashboard: $e");
       if (mounted) {
         setState(() => _isLoading = false);
-        if (!e.toString().contains("ClientException")) { 
-           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Info: ${e.toString().substring(0, 50)}...")));
-        }
+        // On affiche l'erreur sauf si c'est juste un souci réseau mineur
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erreur chargement: $e"), backgroundColor: Colors.red)
+        );
       }
     }
   }
@@ -111,62 +115,6 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
   void _deleteCharacter(String id) async {
     await _charRepo.deleteCharacter(id);
     _loadData();
-  }
-
-// --- IMPORT ---
-  void _importCharacter() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    
-    // Vérification contextuelle simple au début
-    if (!mounted) return;
-    
-    if (data == null || data.text == null || data.text!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Presse-papier vide")));
-      return;
-    }
-
-    final newChar = _sharingService.importCharacter(data.text!);
-
-    if (newChar != null) {
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text("Importer ce personnage ?"),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("Nom : ${newChar.name}", style: const TextStyle(fontWeight: FontWeight.bold)),
-                Text("ID : ${newChar.id}"),
-                const SizedBox(height: 10),
-                const Text("Voulez-vous l'ajouter à vos fiches locales ?"),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
-            ElevatedButton(
-              onPressed: () async {
-                // 1. Sauvegarde asynchrone
-                await _charRepo.saveCharacter(newChar);
-                
-                // 🛑 CORRECTION CRITIQUE : Vérifier si le widget est toujours monté
-                if (!ctx.mounted) return; // On vérifie le contexte du Dialog (ctx)
-                Navigator.pop(ctx); // On ferme le Dialog
-
-                if (!mounted) return; // On vérifie le contexte de la Page (this)
-                _loadData(); // Recharger les données
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Personnage importé !")));
-              },
-              child: const Text("Confirmer"),
-            ),
-          ],
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Format JSON invalide")));
-    }
   }
 
   // --- ACTIONS CAMPAGNES ---
@@ -297,11 +245,7 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.download),
-            tooltip: "Importer JSON",
-            onPressed: _importCharacter,
-          ),
+          
           IconButton(
             icon: const Icon(Icons.menu_book),
             tooltip: "Wiki / Notes",
@@ -470,3 +414,4 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
     );
   }
 }
+// --- WIDGETS INTERNES ---

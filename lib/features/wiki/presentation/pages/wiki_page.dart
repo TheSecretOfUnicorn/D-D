@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../campaign_manager/data/models/note_model.dart';
 import '../../../campaign_manager/data/repositories/notes_repository.dart';
-import '../../../map_editor/presentation/pages/map_editor_page.dart';
+
 
 class WikiPage extends StatefulWidget {
   final int campaignId;
@@ -121,16 +121,7 @@ class _WikiPageState extends State<WikiPage> {
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),
           // Votre raccourci Debug vers l'éditeur de carte
-          IconButton(
-            icon: const Icon(Icons.map, color: Colors.orange),
-            tooltip: "Debug Map",
-            onPressed: () {
-              Navigator.push(
-                context, 
-                MaterialPageRoute(builder: (_) => MapEditorPage(campaignId: widget.campaignId))
-              );
-            },
-          )
+      
         ],
       ),
       floatingActionButton: widget.isGM

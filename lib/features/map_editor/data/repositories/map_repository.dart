@@ -148,4 +148,59 @@ class MapRepository {
       return false;
     }
   }
+// 4. LISTER LES CARTES
+  Future<List<Map<String, dynamic>>> getCampaignMaps(int campaignId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(
+        Uri.parse("$baseUrl/campaigns/$campaignId/maps"), 
+        headers: headers
+      );
+
+      if (response.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+      }
+    } catch (e) {
+      Log.error("❌ Erreur getCampaignMaps: $e");
+    }
+    return [];
+  }
+
+  // 5. ACTIVER UNE CARTE
+  Future<bool> activateMap(String mapId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.patch(
+        Uri.parse("$baseUrl/maps/$mapId/activate"), 
+        headers: headers
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      Log.error("❌ Erreur activateMap: $e");
+      return false;
+    }
+  }
+
+// 6. RÉCUPÉRER LA CARTE ACTIVE (Pour les joueurs)
+  Future<String?> getActiveMapId(int campaignId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.get(
+        Uri.parse("$baseUrl/campaigns/$campaignId/map/active"), 
+        headers: headers
+      );
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        if (json['active'] == true) {
+          return json['map']['id'].toString();
+        }
+      }
+    } catch (e) {
+      Log.error("❌ Erreur getActiveMapId: $e");
+    }
+    return null;
+  }
+
+
 }

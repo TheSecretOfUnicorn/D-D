@@ -13,13 +13,13 @@ import '../../data/models/map_data_model.dart'; // Utilise le vrai modèle
 import '/core/utils/hex_utils.dart'; 
 import '../../../../core/utils/image_loader.dart';
 import '/core/utils/logger_service.dart';
-
+import '/core/services/socket_service.dart';
 // --- IMPORTS SERVICES ---
 import '../../core/services/fog_of_war_service.dart';
 import '../../core/services/pathfinding_service.dart';
 import '../../../campaign_manager/data/repositories/campaign_repository.dart';
 import '../../data/repositories/map_repository.dart'; // Utilise le vrai repo
-
+import '../../../../core/services/socket_service.dart';
 // --- IMPORTS PAINTERS ---
 import '../painters/grid_painter.dart';
 import '../painters/tile_layer_painter.dart';
@@ -53,6 +53,8 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
   final CampaignRepository _campRepo = CampaignRepository();
   final MapRepository _mapRepo = MapRepository();
   late final AnimationController _animController;
+  final SocketService _socket = SocketService();
+  
 
   MapConfig _mapConfig = const MapConfig(
     widthInCells: 20,
@@ -97,6 +99,7 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
+      
     _animController = AnimationController(
       vsync: this, 
       duration: const Duration(seconds: 2)
@@ -111,11 +114,43 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
       Log.error("🆕 Nouvelle carte détectée, pas de chargement.");
     }
     
+    // 1. Connexion au serveur
+    _socket.init(widget.campaignId);
+
+    // 2. Écoute des mouvements (Quand un autre joueur bouge)
+    _socket.onTokenMoved((data) {
+      if (!mounted) return;
+      // data = { charId: "...", x: 5, y: 5 }
+      setState(() {
+        final point = Point<int>(data['x'], data['y']);
+        _tokenPositions[data['charId']] = point;
+      });
+      // Optionnel : Recalculer le brouillard si c'est un allié qui bouge
+      // _recalculateFog(); 
+    });
+    
     WidgetsBinding.instance.addPostFrameCallback((_) => _recalculateFog());
+    
+    _socket.init(widget.campaignId);
+
+    // 2. Écoute des mouvements
+    _socket.onTokenMoved((data) {
+      if (!mounted) return;
+      // data = { charId: "...", x: 5, y: 5 }
+      setState(() {
+        final point = Point<int>(data['x'], data['y']);
+        _tokenPositions[data['charId']] = point;
+      });
+      _recalculateFog(); // Mettre à jour le brouillard si besoin
+    });
+
   }
+
+  
 
   @override
   void dispose() {
+    _socket.dispose();
     _animController.dispose(); 
     super.dispose();
   }
@@ -258,6 +293,18 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
         if (_selectedCharId != null) {
            if (!_tokenPositions.containsKey(_selectedCharId) || _reachableCells.contains(key)) {
              _tokenPositions[_selectedCharId!] = point; changed = true;
+
+             setState(() {
+                _tokenPositions[_selectedCharId!] = point; 
+             });
+             
+             // 2. Envoi au serveur (pour les autres)
+             _socket.sendMove(widget.campaignId, _selectedCharId!, point.x, point.y);
+             
+             // 3. Sauvegarde auto (optionnel, pour persistance)
+             // _save(); 
+             
+             changed = true;
            } else {
              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Trop loin ou bloqué !"), duration: Duration(milliseconds: 500)));
            }
@@ -586,7 +633,7 @@ Future<void> _loadMapData() async {
         
         // 3. On vide et remplit les objets
         _objects.clear();
-         _objects.addAll(mapData.objects!);
+         _objects.addAll(mapData.objects);
             });
       
       // 4. On recalcule le brouillard avec les nouveaux murs
