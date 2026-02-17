@@ -586,10 +586,8 @@ Future<void> _loadMapData() async {
         
         // 3. On vide et remplit les objets
         _objects.clear();
-        if (mapData.objects != null) {
-           _objects.addAll(mapData.objects!);
-        }
-      });
+         _objects.addAll(mapData.objects!);
+            });
       
       // 4. On recalcule le brouillard avec les nouveaux murs
       _recalculateFog();
