@@ -7,15 +7,18 @@ import 'dart:collection';
 import '../../data/models/map_config_model.dart';
 import '../../data/models/tile_type.dart';
 import '../../data/models/world_object_model.dart';
+import '../../data/models/map_data_model.dart'; // Utilise le vrai modèle
 
 // --- IMPORTS UTILS ---
 import '/core/utils/hex_utils.dart'; 
 import '../../../../core/utils/image_loader.dart';
+import '/core/utils/logger_service.dart';
 
 // --- IMPORTS SERVICES ---
 import '../../core/services/fog_of_war_service.dart';
 import '../../core/services/pathfinding_service.dart';
 import '../../../campaign_manager/data/repositories/campaign_repository.dart';
+import '../../data/repositories/map_repository.dart'; // Utilise le vrai repo
 
 // --- IMPORTS PAINTERS ---
 import '../painters/grid_painter.dart';
@@ -31,21 +34,6 @@ import '../painters/lighting_painter.dart';
 import '../widgets/editor_palette.dart'; 
 
 enum EditorTool { move, brush, eraser, token, object, interact, rotate, fill }
-
-
-
-class MapRepository {
-  Future<bool> saveMapData(dynamic data) async {
-    await Future.delayed(const Duration(seconds: 1)); 
-    return true; 
-  }
-}
-class MapDataModel {
-  final String? id; final String name; final MapConfig config; 
-  final Map<String, TileType> gridData; // On sauvegarde la Map complète
-  MapDataModel({this.id, required this.name, required this.config, required this.gridData, required Object objects, required Map<String, int> tileRotations});
-}
-
 
 class MapEditorPage extends StatefulWidget {
   final int campaignId;
@@ -91,9 +79,9 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
   final Map<String, int> _tileRotations = {};
   bool _fogEnabled = true;
 
-  // --- NOUVEAUX PARAMÈTRES DE JEU ---
-  int _visionRange = 8;   // Distance de vue par défaut
-  int _movementRange = 6; // Distance de déplacement par défaut
+  // --- PARAMÈTRES DE JEU ---
+  int _visionRange = 8;   
+  int _movementRange = 6; 
 
   // UI
   List<Map<String, dynamic>> _members = []; 
@@ -103,24 +91,32 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
   TileType _selectedTileType = TileType.stoneFloor;
   ObjectType _selectedObjectType = ObjectType.door; 
   
-  final bool _isPortrait = false; 
+  // final bool _isPortrait = false; // (Inutilisé pour l'instant dans ce code, mais gardé si besoin)
   double get _hexRadius => _mapConfig.cellSize / HexUtils.sqrt3;
 
   @override
   void initState() {
+    super.initState();
     _animController = AnimationController(
       vsync: this, 
       duration: const Duration(seconds: 2)
     )..repeat(reverse: true);
-    super.initState();
+    
     _loadAllAssets();
     _loadMembers();
+    if (widget.mapId != "new_map") {
+      _loadMapData();
+      
+      } else {
+      Log.error("🆕 Nouvelle carte détectée, pas de chargement.");
+    }
+    
     WidgetsBinding.instance.addPostFrameCallback((_) => _recalculateFog());
   }
 
   @override
   void dispose() {
-    _animController.dispose(); // Important pour éviter les fuites de mémoire
+    _animController.dispose(); 
     super.dispose();
   }
 
@@ -146,7 +142,9 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
       try {
         final img = await ImageLoader.loadAsset(entry.value);
         if (mounted) setState(() => _assets[entry.key] = img);
-      } catch (e) {}
+      } catch (e) {
+        debugPrint("Asset manquant : ${entry.key}");
+      }
     }
   }
 
@@ -176,7 +174,6 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
       return;
     }
 
-    // 1. Murs (inchangé)
     final walls = _gridData.entries
       .where((e) => e.value == TileType.stoneWall || e.value == TileType.tree)
       .map((e) => e.key).toSet();
@@ -185,15 +182,14 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
       .map((obj) => "${obj.position.x},${obj.position.y}");
     final allBlockers = walls.union(closedDoors.toSet());
 
-    // 2. Sources de vision (Pions + Lumières)
     List<VisionSource> sources = [];
 
-    // A. Les Pions (Vision définie par les paramètres globaux)
+    // Pions
     for (var pos in _tokenPositions.values) {
       sources.add(VisionSource(pos, _visionRange));
     }
 
-    // B. Les Objets Lumineux (Torches, Feux...)
+    // Lumières
     for (var obj in _objects.values) {
       if (obj.lightRadius > 0) {
         sources.add(VisionSource(obj.position, obj.lightRadius.toInt()));
@@ -201,7 +197,7 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
     }
 
     final visible = FogOfWarService.calculateVisibility(
-      sources: sources, // <--- On passe la liste combinée
+      sources: sources,
       walls: allBlockers, 
       maxCols: _mapConfig.widthInCells, 
       maxRows: _mapConfig.heightInCells
@@ -227,7 +223,7 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
 
     final reachable = PathfindingService.getReachableCells(
       start: startPos, 
-      movement: _movementRange, // <--- UTILISATION DU PARAMÈTRE
+      movement: _movementRange,
       walls: allObstacles,
       maxCols: _mapConfig.widthInCells, maxRows: _mapConfig.heightInCells,
     );
@@ -260,7 +256,6 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
       } 
       else if (_selectedTool == EditorTool.token && details is PointerDownEvent) {
         if (_selectedCharId != null) {
-           // On permet de déplacer si c'est nouveau OU si c'est dans la zone accessible
            if (!_tokenPositions.containsKey(_selectedCharId) || _reachableCells.contains(key)) {
              _tokenPositions[_selectedCharId!] = point; changed = true;
            } else {
@@ -282,7 +277,7 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
             position: point,
             type: _selectedObjectType,
             state: false,
-            lightRadius: lightRad, // <---
+            lightRadius: lightRad,
             lightColor: lightCol,
           );
           changed = true;
@@ -291,25 +286,23 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
       else if (_selectedTool == EditorTool.interact && details is PointerDownEvent) {
         if (_objects.containsKey(key)) {
           final obj = _objects[key]!;
-          _objects[key] = obj.copyWith(state: !obj.state, rotation: obj.rotation);
+          _objects[key] = obj.copyWith(state: !obj.state);
           changed = true;
         }
       }
 
       else if (_selectedTool == EditorTool.rotate && details is PointerDownEvent) {
-        bool changedHere = false; // Renommé pour éviter conflit
+        bool changedHere = false;
         
         if (_objects.containsKey(key)) {
           final obj = _objects[key]!;
-          // MODULO 8 pour 8 directions (0 à 7)
-          final newRot = (obj.rotation + 1) % 8; 
+          final newRot = (obj.rotation + 1) % 8; // 8 directions
           _objects[key] = obj.copyWith(rotation: newRot);
           changedHere = true;
         }
         else if (_gridData.containsKey(key)) {
           final currentRot = _tileRotations[key] ?? 0;
-          // Gardons les MURS sur 6 directions car l'hexagone a 6 cotés
-          final newRot = (currentRot + 1) % 6; 
+          final newRot = (currentRot + 1) % 6; // 6 directions
           _tileRotations[key] = newRot;
           changedHere = true;
         }
@@ -333,7 +326,7 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
     }
   }
 
-  // --- BOÎTE DE DIALOGUE PARAMÈTRES AMÉLIORÉE ---
+  // --- PARAMÈTRES ---
   void _openMapSettings() {
     final widthController = TextEditingController(text: _mapConfig.widthInCells.toString());
     final heightController = TextEditingController(text: _mapConfig.heightInCells.toString());
@@ -365,9 +358,8 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
                 controller: visionController, 
                 keyboardType: TextInputType.number, 
                 decoration: const InputDecoration(
-                  labelText: "Distance de Vue (cases)",
+                  labelText: "Distance de Vue",
                   prefixIcon: Icon(Icons.visibility),
-                  helperText: "Rayon du Brouillard de Guerre"
                 )
               ),
               const SizedBox(height: 8),
@@ -377,7 +369,6 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
                 decoration: const InputDecoration(
                   labelText: "Distance de Déplacement",
                   prefixIcon: Icon(Icons.directions_run),
-                  helperText: "Rayon de la zone verte"
                 )
               ),
             ],
@@ -393,7 +384,6 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
               final m = int.tryParse(movementController.text) ?? 6;
 
               setState(() {
-                // Mise à jour Config
                 _mapConfig = MapConfig(
                   widthInCells: w, 
                   heightInCells: h, 
@@ -401,14 +391,11 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
                   backgroundColor: _mapConfig.backgroundColor,
                   gridColor: _mapConfig.gridColor
                 );
-                // Mise à jour Règles
                 _visionRange = v;
                 _movementRange = m;
               });
-              
               _recalculateFog();
               _calculateMovementRange();
-              
               Navigator.pop(ctx);
             },
             child: const Text("Appliquer"),
@@ -420,31 +407,24 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
 
   void _floodFill(Point<int> startPoint, TileType newType) {
     final startKey = "${startPoint.x},${startPoint.y}";
-    final targetType = _gridData[startKey]; // Le type qu'on veut remplacer (peut être null)
+    final targetType = _gridData[startKey];
 
-    // Si on clique sur une case qui a déjà la bonne couleur, on ne fait rien
     if (targetType == newType) return;
 
     final Queue<Point<int>> queue = Queue();
     queue.add(startPoint);
-    
-    // Pour éviter les boucles infinies
     final Set<String> visited = {startKey};
 
     while (queue.isNotEmpty) {
       final p = queue.removeFirst();
       final key = "${p.x},${p.y}";
       
-      // On peint
       _gridData[key] = newType;
-      // Si on peint un mur sur un objet, on vire l'objet
       if (newType == TileType.stoneWall && _objects.containsKey(key)) {
         _objects.remove(key);
       }
 
-      // Voisins
       for (var neighbor in HexUtils.getNeighbors(p)) {
-        // Vérification des limites de la carte
         if (neighbor.x < 0 || neighbor.x >= _mapConfig.widthInCells || 
             neighbor.y < 0 || neighbor.y >= _mapConfig.heightInCells) {
           continue;
@@ -453,15 +433,14 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
         final nKey = "${neighbor.x},${neighbor.y}";
         final nType = _gridData[nKey];
 
-        // Si le voisin est du même type que la case de départ (ou vide si départ vide)
         if (!visited.contains(nKey) && nType == targetType) {
           visited.add(nKey);
           queue.add(neighbor);
         }
       }
     }
-    setState(() {}); // Rafraîchir
-    _recalculateFog(); // Mettre à jour les murs potentiels
+    setState(() {});
+    _recalculateFog();
   }
 
   @override
@@ -477,7 +456,7 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
         title: const Text("Dungeon Studio"), backgroundColor: const Color(0xFF1a1a1a),
         actions: [
           IconButton(icon: Icon(_fogEnabled ? Icons.visibility_off : Icons.visibility), onPressed: () { setState(() => _fogEnabled = !_fogEnabled); _recalculateFog(); }),
-          IconButton(icon: const Icon(Icons.settings), onPressed: _openMapSettings), // Bouton Réglages
+          IconButton(icon: const Icon(Icons.settings), onPressed: _openMapSettings),
           IconButton(icon: const Icon(Icons.save, color: Colors.blueAccent), onPressed: _save), 
         ],
       ),
@@ -497,45 +476,32 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
             isPortrait: false,
           ),
           
-          // CANVAS AVEC DRAG & DROP
           Expanded(
             child: Container(
               color: Colors.black,
               child: LayoutBuilder(builder: (context, constraints) {
-                // DRAG TARGET : C'est la zone d'atterrissage
                 return DragTarget<Map<String, dynamic>>(
-                  // Appelé quand on lâche le monstre
                   onAcceptWithDetails: (details) {
                     final renderBox = context.findRenderObject() as RenderBox;
                     final localPos = renderBox.globalToLocal(details.offset);
-                    
-                    // On doit convertir la position écran (global) en position grille locale
-                    // Attention: il faut compenser le décalage du TransformationController (Zoom/Pan)
                     final matrix = _transformationController.value;
                     final inverseMatrix = Matrix4.inverted(matrix);
                     final transformedPos = MatrixUtils.transformPoint(inverseMatrix, localPos);
-                    
                     final mapPos = transformedPos - const Offset(_mapMargin, _mapMargin);
                     final point = HexUtils.pixelToGrid(mapPos, _hexRadius, _mapConfig.widthInCells, _mapConfig.heightInCells);
 
                     if (point.x >= 0 && point.y >= 0) {
                       final monsterData = details.data;
-                      
-                      // Création d'un ID unique pour cette instance de monstre
                       final uniqueId = "${monsterData['id']}_${DateTime.now().millisecondsSinceEpoch}";
                       
                       setState(() {
-                        // 1. On ajoute le token sur la carte
                         _tokenPositions[uniqueId] = point;
-                        
-                        // 2. On l'ajoute à la liste des "membres" (même si c'est un monstre)
-                        // Pour l'instant on les mélange, on séparera plus tard pour le combat
                         _members.add({
                           'char_id': uniqueId,
                           'char_name': monsterData['name'],
                           'hp': monsterData['hp'],
                           'ac': monsterData['ac'],
-                          'is_monster': true, // Marqueur pour plus tard
+                          'is_monster': true,
                         });
                       });
                       
@@ -546,7 +512,6 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
                       ));
                     }
                   },
-                  
                   builder: (context, candidateData, rejectedData) {
                     return InteractiveViewer(
                       transformationController: _transformationController,
@@ -557,7 +522,6 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
                         behavior: HitTestBehavior.opaque,
                         onPointerDown: _onPointerEvent, onPointerMove: _onPointerEvent,
                         child: MapCanvasWidget(
-                          // ... (Garde tous tes paramètres existants ici) ...
                           mapConfig: _mapConfig,
                           assets: _assets,
                           gridData: _gridData,
@@ -572,8 +536,7 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
                           mapMargin: _mapMargin,
                           totalWidth: w, totalHeight: h,
                           tileRotations: _tileRotations,
-                          animation: _animController, // <--- NOUVEAU
-                          
+                          animation: _animController,
                         ),
                       ),
                     );
@@ -606,31 +569,90 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
       ),
     );
   }
+Future<void> _loadMapData() async {
+    // Petit délai pour laisser l'UI s'afficher
+    await Future.delayed(const Duration(milliseconds: 100)); 
+
+    final mapData = await _mapRepo.getMapData(widget.mapId);
+    
+    if (mapData != null && mounted) {
+      setState(() {
+        // 1. On applique la config (taille, couleurs)
+        _mapConfig = mapData.config;
+        
+        // 2. On vide et remplit la grille
+        _gridData.clear();
+        _gridData.addAll(mapData.gridData);
+        
+        // 3. On vide et remplit les objets
+        _objects.clear();
+        if (mapData.objects != null) {
+           _objects.addAll(mapData.objects!);
+        }
+      });
+      
+      // 4. On recalcule le brouillard avec les nouveaux murs
+      _recalculateFog();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Carte chargée ! (${_gridData.length} éléments)"), backgroundColor: Colors.green)
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Impossible de charger la carte ❌"), backgroundColor: Colors.red)
+      );
+    }
+  }
   // --- SAUVEGARDE ---
   void _save() async {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sauvegarde... ⏳")));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sauvegarde... ⏳"), duration: Duration(seconds: 1)));
+
+    // 1. GESTION DE L'ID
+    String? currentMapId = widget.mapId;
     
+    // Si l'ID est null ou "new_map", c'est une CRÉATION
+    if (currentMapId == "new_map") {
+      // On crée d'abord la carte vide pour avoir un ID
+      final newId = await _mapRepo.createMap(
+        widget.campaignId, 
+        "Nouvelle Carte", // Vous pourrez mettre un champ texte pour le nom plus tard
+        MapConfig(
+          cellSize: _mapConfig.cellSize,
+          backgroundColor: _mapConfig.backgroundColor,
+          gridColor: _mapConfig.gridColor,
+          widthInCells: _mapConfig.widthInCells, 
+          heightInCells: _mapConfig.heightInCells,)
+      );
+
+      if (newId != null) {
+        currentMapId = newId.toString();
+        // Optionnel : Mettre à jour l'état pour que les prochaines sauvegardes soient des updates
+        // setState(() { widget.mapId = currentMapId; }); // Attention widget.mapId est final, idéalement on recharge la page ou on utilise une variable d'état locale
+      } else {
+         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Erreur lors de la création de la carte ❌"), backgroundColor: Colors.red));
+         return;
+      }
+    }
+
+    // 2. SAUVEGARDE DES DONNÉES (Maintenant qu'on a un vrai ID)
     final mapToSave = MapDataModel(
-      id: widget.mapId,
-      name: "Ma Carte",
+      id: currentMapId, // On utilise l'ID corrigé (ex: "42")
+      name: "Ma Carte Hex",
       config: _mapConfig,
-      gridData: _gridData, 
-      objects: _objects,
-      tileRotations: _tileRotations,
+      gridData: _gridData,
+      objects: _objects
     );
 
     bool success = await _mapRepo.saveMapData(mapToSave);
     
     if (!mounted) return;
-    
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(success ? "Sauvegardé ! 💾" : "Erreur ❌"),
-      backgroundColor: success ? Colors.green : Colors.red,
-    ));
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Carte sauvegardée ! 💾"), backgroundColor: Colors.green));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Erreur de sauvegarde ❌"), backgroundColor: Colors.red));
+    }
   }
-
-
 }
 
 class MapCanvasWidget extends StatelessWidget {
@@ -668,52 +690,61 @@ class MapCanvasWidget extends StatelessWidget {
       decoration: const BoxDecoration(boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 20)]),
       child: Stack(
         children: [
+          // 1. Fond
           Positioned.fill(child: CustomPaint(painter: BackgroundPatternPainter(backgroundColor: mapConfig.backgroundColor, patternImage: assets['parchment']))),
           
-          RepaintBoundary(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: TileLayerPainter(
-            config: mapConfig, assets: assets, gridData: gridData, radius: hexRadius, offset: offset, tileRotations: tileRotations, animationValue: animation.value
-          ))),
+          // 2. Tuiles ANIMÉES (On remplace la version statique par celle-ci)
+          // Utilisation d'AnimatedBuilder pour ne redessiner que ce layer
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: AnimatedBuilder(
+                animation: animation,
+                builder: (context, child) {
+                  return CustomPaint(
+                    size: Size(totalWidth, totalHeight), 
+                    painter: TileLayerPainter(
+                      config: mapConfig, 
+                      assets: assets, 
+                      gridData: gridData, 
+                      tileRotations: tileRotations,
+                      radius: hexRadius, 
+                      offset: offset,
+                      animationValue: animation.value, // <--- Valeur animée
+                    )
+                  );
+                }
+              ),
+            ),
+          ),
           
+          // 3. Objets
           RepaintBoundary(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: ObjectPainter(
             config: mapConfig, objects: objects, assets: assets, radius: hexRadius, offset: offset
           ))),
           
+          // 4. Grille
           IgnorePointer(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: GridPainter(config: mapConfig, radius: hexRadius, offset: offset))),
           
+          // 5. Zone de mouvement
           RepaintBoundary(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: MovementPainter(
             config: mapConfig, reachableCells: fogEnabled ? reachableCells.intersection(visibleCells) : reachableCells, radius: hexRadius, offset: offset
           ))),
           
+          // 6. Tokens
           RepaintBoundary(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: TokenPainter(
             config: mapConfig, tokenPositions: tokenPositions, tokenDetails: tokenDetails, radius: hexRadius, offset: offset
           ))),
 
+          // 7. Brouillard
           if (fogEnabled)
-          IgnorePointer(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: FogPainter(
+            IgnorePointer(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: FogPainter(
               config: mapConfig, visibleCells: visibleCells, exploredCells: exploredCells, radius: hexRadius, offset: offset
             ))),
+            
+          // 8. Lumières Dynamiques (Par dessus le brouillard pour l'effet Glow)
           RepaintBoundary(child: CustomPaint(size: Size(totalWidth, totalHeight), painter: LightingPainter(
             objects: objects, radius: hexRadius, offset: offset
           ))),
-
-          AnimatedBuilder(
-            animation: animation,
-            builder: (context, child) {
-              return CustomPaint(
-                size: Size(totalWidth, totalHeight), 
-                painter: TileLayerPainter(
-                  config: mapConfig, 
-                  assets: assets, 
-                  gridData: gridData, 
-                  tileRotations: tileRotations,
-                  radius: hexRadius, 
-                  offset: offset,
-                  animationValue: animation.value, // <--- On passe la valeur (0.0 à 1.0)
-                )
-              );
-              }
-          ),
-
         ],
       ),
     );

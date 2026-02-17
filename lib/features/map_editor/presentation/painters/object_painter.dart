@@ -44,6 +44,12 @@ class ObjectPainter extends CustomPainter {
           img = assets['torch'];
           fallbackColor = Colors.orange;
           break;
+        case ObjectType.trap:
+          // TODO: Handle this case.
+          throw UnimplementedError();
+        case ObjectType.custom:
+          // TODO: Handle this case.
+          throw UnimplementedError();
       }
 
       // --- CORRECTION ROTATION ---
