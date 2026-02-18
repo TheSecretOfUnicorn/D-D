@@ -2,7 +2,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:flutter/foundation.dart';
 
 class SocketService {
-  // Singleton (Instance unique)
+  // Singleton (Instance unique pour toute l'appli)
   static final SocketService _instance = SocketService._internal();
   factory SocketService() => _instance;
   SocketService._internal();
@@ -12,31 +12,35 @@ class SocketService {
 
   // Initialiser la connexion
   void init(int campaignId) {
-    if (_isInit) return; // Évite de reconnecter si déjà connecté
+    if (_isInit) return;
 
-    // L'adresse de votre serveur
-    const String serverUrl = 'http://sc2tphk4284.universe.wf';
+    const String serverUrl = 'http://sc2tphk4284.universe.wf/api_jdr';
 
     socket = io.io(serverUrl, io.OptionBuilder()
-        .setTransports(['websocket']) // Force le WebSocket (plus rapide)
-        .disableAutoConnect()         // On connecte manuellement
+        // 👇 CHANGEMENT CLÉ : On autorise 'polling' en premier pour passer les pare-feu
+        .setTransports(['polling', 'websocket']) 
+        .disableAutoConnect()
+        .setReconnectionAttempts(double.infinity) // Réessaie tout le temps
         .build());
+
+    // Debug avancé pour comprendre ce qui coince
+    socket.onConnectError((data) => debugPrint("⚠️ Erreur Connexion: $data"));
+    socket.on('connect_timeout', (data) => debugPrint("⏱️ Timeout Connexion"));
+    socket.onError((data) => debugPrint("❌ Erreur Générale: $data"));
 
     socket.connect();
 
     socket.onConnect((_) {
-      debugPrint('🟢 Socket Connecté ! ID: ${socket.id}');
-      // On rejoint la "salle" de la campagne
+      debugPrint('🟢 Socket Connecté ! (Transport: ${socket.io.engine?.transport?.name})');
       socket.emit('join_campaign', campaignId);
     });
 
     socket.onDisconnect((_) => debugPrint('🔴 Socket Déconnecté'));
-    socket.onError((data) => debugPrint('❌ Erreur Socket: $data'));
 
     _isInit = true;
   }
 
-  // Émettre un mouvement de pion
+  // 1. Émettre un mouvement de pion
   void sendMove(int campaignId, String charId, int x, int y) {
     socket.emit('move_token', {
       'campaignId': campaignId,
@@ -46,9 +50,23 @@ class SocketService {
     });
   }
 
-  // Écouter les mouvements des autres
+  // 2. Écouter les mouvements des autres
   void onTokenMoved(Function(dynamic) callback) {
     socket.on('token_moved', callback);
+  }
+
+  // 3. Émettre un lancer de dé
+  void sendDiceRoll(int campaignId, String user, String result) {
+    socket.emit('dice_roll', {
+      'campaignId': campaignId,
+      'user': user,
+      'result': result, // ex: "1d20 = 18"
+    });
+  }
+
+  // 4. Écouter les lancers des autres
+  void onDiceRoll(Function(dynamic) callback) {
+    socket.on('new_log', callback);
   }
 
   // Quitter proprement

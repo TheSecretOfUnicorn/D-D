@@ -19,7 +19,7 @@ import '../../core/services/fog_of_war_service.dart';
 import '../../core/services/pathfinding_service.dart';
 import '../../../campaign_manager/data/repositories/campaign_repository.dart';
 import '../../data/repositories/map_repository.dart'; // Utilise le vrai repo
-import '../../../../core/services/socket_service.dart';
+
 // --- IMPORTS PAINTERS ---
 import '../painters/grid_painter.dart';
 import '../painters/tile_layer_painter.dart';
@@ -38,11 +38,12 @@ enum EditorTool { move, brush, eraser, token, object, interact, rotate, fill }
 class MapEditorPage extends StatefulWidget {
   final int campaignId;
   final String mapId;
-
+  final bool isGM;
   const MapEditorPage({
     super.key, 
     this.campaignId = 0, 
-    this.mapId = "new_map"
+    this.mapId = "new_map",
+    this.isGM = true,
   });
 
   @override
@@ -99,7 +100,9 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-      
+     if (!widget.isGM) {
+    _selectedTool = EditorTool.token; // Ou move
+  } 
     _animController = AnimationController(
       vsync: this, 
       duration: const Duration(seconds: 2)
@@ -128,7 +131,7 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
       // Optionnel : Recalculer le brouillard si c'est un allié qui bouge
       // _recalculateFog(); 
     });
-    
+
     WidgetsBinding.instance.addPostFrameCallback((_) => _recalculateFog());
     
     _socket.init(widget.campaignId);
@@ -157,7 +160,7 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
 
   Future<void> _loadAllAssets() async {
     final files = {
-      'parchment': 'assets/images/ui/parchment_bg.png',
+      
       'stone_floor': 'assets/images/tiles/stone_floor.png',
       'wood_floor': 'assets/images/tiles/wood_floor.png',
       'grass': 'assets/images/tiles/grass_1.png',
@@ -510,6 +513,7 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
       backgroundColor: const Color(0xFF121212),
       body: Row(
         children: [
+          if (widget.isGM)
           EditorPalette(
             selectedTool: _selectedTool,
             selectedTileType: _selectedTileType,
@@ -612,6 +616,7 @@ class _MapEditorPageState extends State<MapEditorPage> with SingleTickerProvider
                 },
               ),
             )
+            
         ],
       ),
     );

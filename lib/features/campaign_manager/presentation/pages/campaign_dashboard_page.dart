@@ -56,7 +56,7 @@ class _CampaignDashboardPageState extends State<CampaignDashboardPage> with Sing
 
       // 2. On charge les personnages
       // On utilise 'cast<CharacterModel>' pour forcer le type proprement
-      final charsRaw = await _charRepo.getAllCharacters("");
+      final charsRaw = await _charRepo.getAllCharacters();
       final chars = charsRaw.cast<CharacterModel>().toList();
 
       // 3. On charge les campagnes

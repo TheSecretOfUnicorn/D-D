@@ -72,4 +72,6 @@ class CharacterModel {
   }
 
   factory CharacterModel.fromJson(Map<String, dynamic> json) => CharacterModel.fromMap(json);
+
+  copyWith({required String name, required Map<String, dynamic> stats}) {}
 }

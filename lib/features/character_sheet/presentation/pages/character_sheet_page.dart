@@ -58,15 +58,19 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
     if (!mounted) return;
     setState(() => _isLoadingCompendium = true);
 
-    final campaignIdStr = widget.character.getStat<String?>('campaign_id', null);
-    final data = await _compendiumRepo.fetchFullCompendium(campaignIdStr);
-    
-    if (mounted) {
-      setState(() {
-        _onlineItems = data['items']!;
-        _onlineSpells = data['spells']!;
-        _isLoadingCompendium = false;
-      });
+    // On pourrait utiliser l'ID de la campagne du perso, ou celui passé en paramètre
+    final campaignIdStr = widget.campaignId?.toString();
+    try {
+      final data = await _compendiumRepo.fetchFullCompendium(campaignIdStr);
+      if (mounted) {
+        setState(() {
+          _onlineItems = data['items']!;
+          _onlineSpells = data['spells']!;
+          _isLoadingCompendium = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingCompendium = false);
     }
   }
 
@@ -81,12 +85,22 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
   }
 
   void _saveChanges() async {
-    widget.character.name = _nameController.text;
-    widget.character.setStat('bio', _bioController.text);
-    widget.character.setStat('race', _raceController.text);
+    // Mise à jour locale du modèle avant sauvegarde
+    // Note: character est passé par référence, donc on modifie l'objet original
+    // Mais idéalement on devrait utiliser une copie locale si on voulait être puriste.
+    // Ici c'est acceptable pour la simplicité.
+    final updatedStats = Map<String, dynamic>.from(widget.character.stats);
+    updatedStats['bio'] = _bioController.text;
+    updatedStats['race'] = _raceController.text;
+    
+    // On recrée un objet propre pour la sauvegarde
+    final charToSave = widget.character.copyWith(
+      name: _nameController.text,
+      stats: updatedStats,
+    );
 
     try {
-      await _repo.saveCharacter(widget.character);
+      await _repo.saveCharacter(charToSave);
       if (mounted) {
         // Discret en mode jeu, visible en mode édition
         if (widget.campaignId == null) {
@@ -94,7 +108,7 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
         }
       }
     } catch (e) {
-      // Error handling
+      // Error handling silencieux ou SnackBar rouge
     }
   }
 
@@ -163,6 +177,7 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
           ],
         ),
       ),
+      backgroundColor: const Color(0xFF121212),
       body: TabBarView(
         controller: _tabController,
         children: [
@@ -192,7 +207,11 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
   }
 
   Widget _buildStatsTab() {
-    final List<String> statsList = widget.rules.stats; 
+    // Sécurité si les règles ne sont pas chargées
+    final List<String> statsList = widget.rules.stats.isNotEmpty 
+        ? widget.rules.stats 
+        : ['str', 'dex', 'con', 'int', 'wis', 'cha']; 
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -205,10 +224,11 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
           final String displayName = widget.rules.getStatName(statId);
 
           return Card(
+            color: const Color(0xFF252525),
             margin: const EdgeInsets.symmetric(vertical: 4),
             child: ListTile(
-              title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text("Modif: $modSign$modifier"),
+              title: Text(displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              subtitle: Text("Modif: $modSign$modifier", style: const TextStyle(color: Colors.white54)),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -223,15 +243,15 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
                   // Éditeurs (Petits boutons discrets)
                   SizedBox(
                     height: 30, width: 30,
-                    child: IconButton(padding: EdgeInsets.zero, icon: const Icon(Icons.remove, size: 16), onPressed: () => _updateStat(statId, currentValue - 1)),
+                    child: IconButton(padding: EdgeInsets.zero, icon: const Icon(Icons.remove, size: 16, color: Colors.white70), onPressed: () => _updateStat(statId, currentValue - 1)),
                   ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text("$currentValue", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    child: Text("$currentValue", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
                   SizedBox(
                     height: 30, width: 30,
-                    child: IconButton(padding: EdgeInsets.zero, icon: const Icon(Icons.add, size: 16), onPressed: () => _updateStat(statId, currentValue + 1)),
+                    child: IconButton(padding: EdgeInsets.zero, icon: const Icon(Icons.add, size: 16, color: Colors.white70), onPressed: () => _updateStat(statId, currentValue + 1)),
                   ),
                 ],
               ),
@@ -252,14 +272,15 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
   Widget _buildNumberEditor(String label, String key, int defaultValue) {
     final int val = widget.character.getStat<int>(key, defaultValue);
     return Card(
+      color: const Color(0xFF252525),
       child: ListTile(
-        title: Text(label),
+        title: Text(label, style: const TextStyle(color: Colors.white)),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(icon: const Icon(Icons.remove), onPressed: () => _updateStat(key, val - 1)),
-            Text("$val", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            IconButton(icon: const Icon(Icons.add), onPressed: () => _updateStat(key, val + 1)),
+            IconButton(icon: const Icon(Icons.remove, color: Colors.white70), onPressed: () => _updateStat(key, val - 1)),
+            Text("$val", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            IconButton(icon: const Icon(Icons.add, color: Colors.white70), onPressed: () => _updateStat(key, val + 1)),
           ],
         ),
       ),
@@ -279,12 +300,15 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
           DropdownButtonFormField<String>(
             initialValue: currentClass,
             decoration: const InputDecoration(labelText: "Classe", border: OutlineInputBorder()),
+            dropdownColor: const Color(0xFF333333),
+            style: const TextStyle(color: Colors.white),
             items: validClasses.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
             onChanged: (val) => _updateStat('class', val),
           ),
           const SizedBox(height: 10),
           TextField(
             controller: _raceController,
+            style: const TextStyle(color: Colors.white),
             decoration: const InputDecoration(labelText: "Race", border: OutlineInputBorder()),
             onSubmitted: (_) => _saveChanges(),
           ),
@@ -292,6 +316,7 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
           TextField(
             controller: _bioController,
             maxLines: 10,
+            style: const TextStyle(color: Colors.white),
             decoration: const InputDecoration(labelText: "Biographie / Notes", border: OutlineInputBorder()),
             onEditingComplete: _saveChanges,
           ),
@@ -302,8 +327,6 @@ class _CharacterSheetPageState extends State<CharacterSheetPage> with SingleTick
 }
 
 // --- ONGLETS ADAPTÉS POUR LE JEU ---
-
-// --- À COLLER À LA FIN DE character_sheet_page.dart ---
 
 class InventoryTab extends StatefulWidget {
   final CharacterModel character;
@@ -340,7 +363,7 @@ class _InventoryTabState extends State<InventoryTab> {
   void _useItem(String name) {
     if (widget.campaignId != null && widget.campaignRepo != null) {
       widget.campaignRepo!.sendLog(widget.campaignId!, "a utilisé : $name");
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Utilisé : $name")));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Utilisé : $name"), duration: const Duration(seconds: 1)));
     }
   }
 
@@ -352,7 +375,8 @@ class _InventoryTabState extends State<InventoryTab> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("Ajouter un objet"),
+        backgroundColor: const Color(0xFF252525),
+        title: const Text("Ajouter un objet", style: TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -365,11 +389,17 @@ class _InventoryTabState extends State<InventoryTab> {
               onSelected: (s) { selectedName = s['name']; selectedDesc = s['desc'] ?? ""; },
               fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) => TextField(
                 controller: controller, focusNode: focusNode,
-                decoration: const InputDecoration(labelText: "Nom de l'objet", suffixIcon: Icon(Icons.search)),
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(labelText: "Nom de l'objet", suffixIcon: Icon(Icons.search, color: Colors.white70)),
                 onChanged: (val) => selectedName = val,
               ),
             ),
-            TextField(controller: qtyCtrl, decoration: const InputDecoration(labelText: "Quantité"), keyboardType: TextInputType.number),
+            TextField(
+              controller: qtyCtrl, 
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(labelText: "Quantité"), 
+              keyboardType: TextInputType.number
+            ),
           ],
         ),
         actions: [
@@ -395,18 +425,21 @@ class _InventoryTabState extends State<InventoryTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton(onPressed: _addItem, backgroundColor: Colors.brown, child: const Icon(Icons.add)),
       body: _items.isEmpty 
-        ? const Center(child: Text("Sac à dos vide.")) 
+        ? const Center(child: Text("Sac à dos vide.", style: TextStyle(color: Colors.white54))) 
         : ListView.builder(
             itemCount: _items.length,
             itemBuilder: (ctx, i) => Card(
+              color: const Color(0xFF252525),
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: ExpansionTile(
                 leading: CircleAvatar(backgroundColor: Colors.brown[100], child: Text("${_items[i]['qty']}", style: const TextStyle(color: Colors.brown))),
-                title: Text(_items[i]['name'] ?? "Objet"),
+                title: Text(_items[i]['name'] ?? "Objet", style: const TextStyle(color: Colors.white)),
                 children: [
-                  if (_items[i]['desc'] != null) Padding(padding: const EdgeInsets.all(16), child: Text(_items[i]['desc'])),
+                  if (_items[i]['desc'] != null && _items[i]['desc'].toString().isNotEmpty) 
+                    Padding(padding: const EdgeInsets.all(16), child: Text(_items[i]['desc'], style: const TextStyle(color: Colors.white70))),
                   Row(mainAxisAlignment: MainAxisAlignment.end, children: [
                     // 👇 BOUTON UTILISER (Visible seulement si en campagne)
                     if (widget.campaignId != null)
@@ -463,7 +496,7 @@ class _SpellbookTabState extends State<SpellbookTab> {
   void _castSpell(String name) {
     if (widget.campaignId != null && widget.campaignRepo != null) {
       widget.campaignRepo!.sendLog(widget.campaignId!, "incante : $name ✨");
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lancé : $name")));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lancé : $name"), duration: const Duration(seconds: 1)));
     }
   }
 
@@ -474,7 +507,8 @@ class _SpellbookTabState extends State<SpellbookTab> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("Apprendre un sort"),
+        backgroundColor: const Color(0xFF252525),
+        title: const Text("Apprendre un sort", style: TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -487,11 +521,12 @@ class _SpellbookTabState extends State<SpellbookTab> {
               onSelected: (s) { selectedName = s['name']; levelCtrl.text = (s['level'] ?? 0).toString(); },
               fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) => TextField(
                 controller: controller, focusNode: focusNode,
+                style: const TextStyle(color: Colors.white),
                 decoration: const InputDecoration(labelText: "Nom du sort"),
                 onChanged: (val) => selectedName = val,
               ),
             ),
-            TextField(controller: levelCtrl, decoration: const InputDecoration(labelText: "Niveau"), keyboardType: TextInputType.number),
+            TextField(controller: levelCtrl, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Niveau"), keyboardType: TextInputType.number),
           ],
         ),
         actions: [
@@ -514,17 +549,19 @@ class _SpellbookTabState extends State<SpellbookTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton(onPressed: _addSpell, backgroundColor: Colors.purple, child: const Icon(Icons.auto_fix_high)),
       body: _spells.isEmpty 
-        ? const Center(child: Text("Grimoire vide.")) 
+        ? const Center(child: Text("Grimoire vide.", style: TextStyle(color: Colors.white54))) 
         : ListView.builder(
             itemCount: _spells.length,
             itemBuilder: (ctx, i) => Card(
+              color: const Color(0xFF252525),
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: ListTile(
                 leading: CircleAvatar(backgroundColor: Colors.purple[100], child: Text("${_spells[i]['level']}", style: const TextStyle(color: Colors.purple))),
-                title: Text(_spells[i]['name'] ?? "Sort"),
-                subtitle: Text("Niveau ${_spells[i]['level']}"),
+                title: Text(_spells[i]['name'] ?? "Sort", style: const TextStyle(color: Colors.white)),
+                subtitle: Text("Niveau ${_spells[i]['level']}", style: const TextStyle(color: Colors.white54)),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -534,7 +571,7 @@ class _SpellbookTabState extends State<SpellbookTab> {
                         icon: const Icon(Icons.auto_awesome, color: Colors.purple), 
                         onPressed: () => _castSpell(_spells[i]['name'])
                       ),
-                    IconButton(icon: const Icon(Icons.delete), onPressed: () {
+                    IconButton(icon: const Icon(Icons.delete, color: Colors.white70), onPressed: () {
                       setState(() { _spells.removeAt(i); widget.character.setStat('spells', _spells); });
                       widget.onSave();
                     }),
