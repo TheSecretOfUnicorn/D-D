@@ -1,94 +1,100 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:ui';
+
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
-import '../models/map_data_model.dart';       // Vérifie ce chemin
-import '../models/map_config_model.dart';     // Vérifie ce chemin
-import '../models/tile_type.dart';            // Vérifie ce chemin
-import '../models/world_object_model.dart';   // Vérifie ce chemin
+
+import '../../../../core/config/api_config.dart';
+import '../../../../core/services/session_service.dart';
 import '../../../../core/utils/logger_service.dart';
+import '../models/map_config_model.dart';
+import '../models/map_data_model.dart';
+import '../models/tile_type.dart';
+import '../models/world_object_model.dart';
 
 class MapRepository {
-  final String baseUrl = "http://sc2tphk4284.universe.wf/api_jdr";
+  final SessionService _sessionService = SessionService();
+  final String baseUrl = ApiConfig.baseUrl;
 
-  Future<Map<String, String>> _getHeaders() async {
-    final prefs = await SharedPreferences.getInstance();
-    return {
-      'Content-Type': 'application/json',
-      'x-user-id': prefs.get('user_id')?.toString() ?? '',
-    };
-  }
+  Future<Map<String, String>> _getHeaders() => _sessionService.authHeaders();
 
-  // 1. CHARGER UNE CARTE
   Future<MapDataModel?> getMapData(String mapId) async {
     try {
       final headers = await _getHeaders();
-      Log.error("📥 Chargement carte ID: $mapId ...");
-      final response = await http.get(Uri.parse("$baseUrl/maps/$mapId"), headers: headers);
+      Log.error("Chargement carte ID: $mapId ...");
+      final response = await http.get(
+        Uri.parse("$baseUrl/maps/$mapId"),
+        headers: headers,
+      );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        
-        // 1. Récupération de json_data (qui contient tout le dessin)
-        final jsonData = data['json_data'];
-        if (jsonData == null) return null; // Carte vide
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        Log.error("Erreur Serveur getMapData", response.statusCode);
+        return null;
+      }
 
-        // 2. Reconstruction de la Config
-        final configJson = jsonData['config'] ?? {};
-        final config = MapConfig(
-          widthInCells: data['width'] ?? 20,
-          heightInCells: data['height'] ?? 15,
-          cellSize: (configJson['cellSize'] ?? 64.0).toDouble(),
-          backgroundColor: Color(configJson['bgColor'] ?? 0xFFE0D8C0),
-          gridColor: Color(configJson['gridColor'] ?? 0x4D5C4033),
-        );
+      final data = jsonDecode(response.body);
+      final jsonData = data['json_data'];
+      if (jsonData == null) return null;
 
-        // 3. Reconstruction de la Grille (TileType)
-        final Map<String, TileType> grid = {};
-        if (jsonData['tiles'] != null) {
-          Map<String, dynamic> tilesMap = jsonData['tiles'];
-          tilesMap.forEach((key, value) {
-            // value est l'index (0, 1, 2...) de l'enum
-            if (value is int && value < TileType.values.length) {
-              grid[key] = TileType.values[value];
-            }
-          });
-        }
+      final configJson = jsonData['config'] ?? {};
+      final config = MapConfig(
+        widthInCells: data['width'] ?? 20,
+        heightInCells: data['height'] ?? 15,
+        cellSize: (configJson['cellSize'] ?? 64.0).toDouble(),
+        backgroundColor: Color(configJson['bgColor'] ?? 0xFFE0D8C0),
+        gridColor: Color(configJson['gridColor'] ?? 0x4D5C4033),
+      );
 
-        // 4. Reconstruction des Objets (WorldObject)
-        final Map<String, WorldObject> objects = {};
-        if (jsonData['objects'] != null) {
-          List<dynamic> objectsList = jsonData['objects'];
-          for (var objJson in objectsList) {
-            try {
-              final obj = WorldObject.fromJson(objJson);
-              final key = "${obj.position.x},${obj.position.y}";
-              objects[key] = obj;
-            } catch (e) {
-              Log.error("⚠️ Objet corrompu ignoré: $e");
-            }
+      final grid = <String, TileType>{};
+      if (jsonData['tiles'] != null) {
+        final tilesMap = Map<String, dynamic>.from(jsonData['tiles']);
+        tilesMap.forEach((key, value) {
+          if (value is int && value >= 0 && value < TileType.values.length) {
+            grid[key] = TileType.values[value];
+          }
+        });
+      }
+
+      final objects = <String, WorldObject>{};
+      if (jsonData['objects'] != null) {
+        final objectsList = List<dynamic>.from(jsonData['objects']);
+        for (final objJson in objectsList) {
+          try {
+            final obj = WorldObject.fromJson(objJson);
+            objects["${obj.position.x},${obj.position.y}"] = obj;
+          } catch (e) {
+            Log.error("Objet corrompu ignore", e);
           }
         }
-
-        Log.error("✅ Carte chargée: ${grid.length} tuiles, ${objects.length} objets.");
-
-        return MapDataModel(
-          id: data['id'].toString(),
-          name: data['name'],
-          config: config,
-          gridData: grid,
-          objects: objects,
-        );
-      } else {
-        Log.error("❌ Erreur Serveur: ${response.statusCode}");
       }
+
+      final tokens = <String, Point<int>>{};
+      if (data['tokens'] is Map) {
+        Map<Object?, Object?>.from(data['tokens']).forEach((key, value) {
+          if (value is Map) {
+            final x = value['x'];
+            final y = value['y'];
+            if (x is int && y is int) {
+              tokens[key.toString()] = Point<int>(x, y);
+            }
+          }
+        });
+      }
+
+      return MapDataModel(
+        id: data['id'].toString(),
+        name: data['name'],
+        config: config,
+        gridData: grid,
+        objects: objects,
+        tokenPositions: tokens,
+      );
     } catch (e) {
-      Log.error("❌ Exception getMapData: $e");
+      Log.error("Exception getMapData", e);
+      return null;
     }
-    return null;
   }
 
-  // 2. CRÉER UNE CARTE (POST)
   Future<int?> createMap(int campaignId, String name, MapConfig config) async {
     try {
       final headers = await _getHeaders();
@@ -98,28 +104,23 @@ class MapRepository {
         body: jsonEncode({
           "name": name,
           "width": config.widthInCells,
-          "height": config.heightInCells
+          "height": config.heightInCells,
         }),
       );
 
-      if (response.statusCode == 200) {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
         return jsonDecode(response.body)['id'];
       }
     } catch (e) {
-      Log.error("❌ Erreur createMap: $e");
+      Log.error("Erreur createMap", e);
     }
     return null;
   }
 
-  // 3. SAUVEGARDER (PUT)
   Future<bool> saveMapData(MapDataModel map) async {
     try {
       final headers = await _getHeaders();
-      
-      // Conversion des Enums en Index pour le JSON
       final tilesJson = map.gridData.map((k, v) => MapEntry(k, v.index));
-      
-      // Conversion des Objets
       final objectsJson = map.objects.values.map((o) => o.toJson()).toList();
 
       final body = {
@@ -142,65 +143,120 @@ class MapRepository {
         body: jsonEncode(body),
       );
 
-      return response.statusCode == 200;
+      return response.statusCode >= 200 && response.statusCode < 300;
     } catch (e) {
-      Log.error("❌ Erreur saveMapData: $e");
+      Log.error("Erreur saveMapData", e);
       return false;
     }
   }
-// 4. LISTER LES CARTES
+
+  Future<bool> saveTokenPositions(
+    String mapId,
+    Map<String, Point<int>> tokenPositions,
+  ) async {
+    try {
+      final headers = await _getHeaders();
+      final tokensJson = tokenPositions.map(
+        (key, value) => MapEntry(key, {'x': value.x, 'y': value.y}),
+      );
+
+      final response = await http.patch(
+        Uri.parse("$baseUrl/maps/$mapId/tokens"),
+        headers: headers,
+        body: jsonEncode({'tokens': tokensJson}),
+      );
+
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (e) {
+      Log.error("Erreur saveTokenPositions", e);
+      return false;
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getCampaignMaps(int campaignId) async {
     try {
       final headers = await _getHeaders();
       final response = await http.get(
-        Uri.parse("$baseUrl/campaigns/$campaignId/maps"), 
-        headers: headers
+        Uri.parse("$baseUrl/campaigns/$campaignId/maps"),
+        headers: headers,
       );
 
-      if (response.statusCode == 200) {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
         return List<Map<String, dynamic>>.from(jsonDecode(response.body));
       }
     } catch (e) {
-      Log.error("❌ Erreur getCampaignMaps: $e");
+      Log.error("Erreur getCampaignMaps", e);
     }
-    return [];
+    return const [];
   }
 
-  // 5. ACTIVER UNE CARTE
   Future<bool> activateMap(String mapId) async {
     try {
       final headers = await _getHeaders();
       final response = await http.patch(
-        Uri.parse("$baseUrl/maps/$mapId/activate"), 
-        headers: headers
+        Uri.parse("$baseUrl/maps/$mapId/activate"),
+        headers: headers,
       );
-      return response.statusCode == 200;
+      return response.statusCode >= 200 && response.statusCode < 300;
     } catch (e) {
-      Log.error("❌ Erreur activateMap: $e");
+      Log.error("Erreur activateMap", e);
       return false;
     }
   }
 
-// 6. RÉCUPÉRER LA CARTE ACTIVE (Pour les joueurs)
-  Future<String?> getActiveMapId(int campaignId) async {
+  Future<bool> renameMap(String mapId, String name) async {
+    try {
+      final trimmedName = name.trim();
+      if (trimmedName.isEmpty) return false;
+      final headers = await _getHeaders();
+      final response = await http.patch(
+        Uri.parse("$baseUrl/maps/$mapId/meta"),
+        headers: headers,
+        body: jsonEncode({'name': trimmedName}),
+      );
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (e) {
+      Log.error("Erreur renameMap", e);
+      return false;
+    }
+  }
+
+  Future<bool> deleteMap(String mapId) async {
+    try {
+      final headers = await _getHeaders();
+      final response = await http.delete(
+        Uri.parse("$baseUrl/maps/$mapId"),
+        headers: headers,
+      );
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (e) {
+      Log.error("Erreur deleteMap", e);
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getActiveMapSummary(int campaignId) async {
     try {
       final headers = await _getHeaders();
       final response = await http.get(
-        Uri.parse("$baseUrl/campaigns/$campaignId/map/active"), 
-        headers: headers
+        Uri.parse("$baseUrl/campaigns/$campaignId/map/active"),
+        headers: headers,
       );
 
-      if (response.statusCode == 200) {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
         final json = jsonDecode(response.body);
-        if (json['active'] == true) {
-          return json['map']['id'].toString();
+        if (json['active'] == true && json['map'] is Map<String, dynamic>) {
+          return Map<String, dynamic>.from(json['map']);
         }
       }
     } catch (e) {
-      Log.error("❌ Erreur getActiveMapId: $e");
+      Log.error("Erreur getActiveMapSummary", e);
     }
     return null;
   }
 
-
+  Future<String?> getActiveMapId(int campaignId) async {
+    final activeMap = await getActiveMapSummary(campaignId);
+    return activeMap?['id']?.toString();
+  }
 }

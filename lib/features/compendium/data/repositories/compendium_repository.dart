@@ -1,11 +1,16 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../../../core/config/api_config.dart';
+import '../../../../core/services/session_service.dart';
 import '/core/utils/logger_service.dart';
 
 class CompendiumRepository {
-  // ⚠️ Remplace par ton IP locale (ex: 10.0.2.2 pour émulateur Android, ou ton IP LAN)
-  // Si tu es sur le même PC en web : http://localhost:3000
-  final String baseUrl = "http://sc2tphk4284.universe.wf/api_jdr"; 
+  final SessionService _sessionService = SessionService();
+  final String baseUrl = ApiConfig.baseUrl;
+
+  Future<Map<String, String>> _getHeaders({bool requireUser = false}) {
+    return _sessionService.authHeaders(requireUser: requireUser);
+  }
 
   /// Récupère tout le compendium (ou filtré par campagne)
   Future<Map<String, List<Map<String, dynamic>>>> fetchFullCompendium(String? campaignId) async {
@@ -13,9 +18,10 @@ class CompendiumRepository {
     final String url = "$baseUrl/compendium/${campaignId ?? '0'}";
     
     try {
-      final response = await http.get(Uri.parse(url));
+      final headers = await _getHeaders();
+      final response = await http.get(Uri.parse(url), headers: headers);
 
-      if (response.statusCode == 200) {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
         final List<dynamic> rawData = jsonDecode(response.body);
         
         // On trie les données dans deux listes : Objets et Sorts
@@ -64,9 +70,10 @@ class CompendiumRepository {
     final String url = "$baseUrl/compendium";
 
     try {
+      final headers = await _getHeaders(requireUser: true);
       final response = await http.post(
         Uri.parse(url),
-        headers: {"Content-Type": "application/json"},
+        headers: headers,
         body: jsonEncode({
           "campaign_id": campaignId,
           "type": type,
@@ -76,7 +83,7 @@ class CompendiumRepository {
         }),
       );
 
-      if (response.statusCode == 200) {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
         return true;
       } else {
         Log.error("Erreur création entrée compendium: ${response.body}");
@@ -93,9 +100,10 @@ class CompendiumRepository {
     final String url = "$baseUrl/compendium/$id";
 
     try {
-      final response = await http.delete(Uri.parse(url));
+      final headers = await _getHeaders(requireUser: true);
+      final response = await http.delete(Uri.parse(url), headers: headers);
 
-      if (response.statusCode == 200) {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
         return true;
       } else {
         Log.error("Erreur suppression entrée compendium (${response.statusCode}): ${response.body}");

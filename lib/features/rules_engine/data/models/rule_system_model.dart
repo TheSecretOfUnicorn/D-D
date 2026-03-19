@@ -43,7 +43,7 @@ class RuleSystemModel {
     // Progression & Combat (affichés ailleurs)
     'level', 'xp', 'hp', 'hp_current', 'hp_max', 'ac', 'armor_class', 'speed', 'initiative', 'proficiency_bonus',
     // Inventaire & Sorts (ce ne sont pas des stats chiffrées simples)
-    'inventory', 'spells', 'equipment', 'gold', 'currency', 'features', 'traits'
+    'inventory', 'spells', 'spellbook', 'equipment', 'gold', 'currency', 'features', 'traits'
   ];
 
   List<String> get stats {

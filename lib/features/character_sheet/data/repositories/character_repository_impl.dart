@@ -1,32 +1,20 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart'; // Pour debugPrint
 import '../models/character_model.dart';
+import '../../../../core/config/api_config.dart';
+import '../../../../core/services/session_service.dart';
 
 class CharacterRepositoryImpl {
-  // Vérifiez bien l'URL (sans slash à la fin)
-  final String baseUrl = "http://sc2tphk4284.universe.wf/api_jdr";
+  final SessionService _sessionService = SessionService();
+  final String baseUrl = ApiConfig.baseUrl;
 
-  // 👇 C'EST ICI QUE SE TROUVAIT L'ERREUR "TypeError: 25"
   Future<Map<String, String>> _getHeaders() async {
-    final prefs = await SharedPreferences.getInstance();
-    
-    // On récupère l'ID (qui peut être int ou String selon comment il a été sauvé)
-    final dynamic rawId = prefs.get('userId') ?? prefs.get('user_id');
-    
-    // ✅ CORRECTION : On force la conversion en String. 
-    // Si c'est 25 (int), ça devient "25" (String).
-    final String userId = rawId?.toString() ?? "";
-
-    if (userId.isEmpty) {
+    final headers = await _sessionService.authHeaders(requireUser: false);
+    if (!headers.containsKey('x-user-id')) {
       debugPrint("⚠️ ALERTE : Aucun User ID trouvé (Non connecté ?)");
     }
-
-    return {
-      "Content-Type": "application/json",
-      "x-user-id": userId, // Maintenant c'est bien une String !
-    };
+    return headers;
   }
 
   // 1. Charger TOUS les personnages
@@ -35,7 +23,7 @@ class CharacterRepositoryImpl {
       final headers = await _getHeaders();
       final response = await http.get(Uri.parse('$baseUrl/characters'), headers: headers);
 
-      if (response.statusCode == 200) {
+      if (response.statusCode >= 200 && response.statusCode < 300) {
         final List<dynamic> jsonList = jsonDecode(response.body);
         // On utilise la méthode de votre modèle (fromMap ou fromJson)
         // Assurez-vous que votre modèle gère bien la conversion si l'ID est un int dans le JSON
@@ -63,23 +51,59 @@ class CharacterRepositoryImpl {
   }
 
   // 3. Sauvegarder
-  Future<void> saveCharacter(CharacterModel character) async {
+  Future<CharacterModel> saveCharacter(CharacterModel character) async {
     try {
       final headers = await _getHeaders();
-      // toMap ou toJson selon votre modèle
       final body = jsonEncode(character.toMap());
 
       debugPrint("📤 Sauvegarde : ${character.name}");
 
-      final response = await http.post(
+      http.Response response = await http.post(
         Uri.parse('$baseUrl/characters'),
         headers: headers,
         body: body,
       );
 
-      if (response.statusCode != 200) {
+      if (character.id.startsWith('local_') && response.statusCode >= 500) {
+        response = await http.post(
+          Uri.parse('$baseUrl/characters'),
+          headers: headers,
+          body: jsonEncode({
+            'name': character.name,
+            'stats': character.stats,
+            if (character.imagePath != null && character.imagePath!.isNotEmpty)
+              'imagePath': character.imagePath,
+          }),
+        );
+      }
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
         throw Exception("Erreur serveur (${response.statusCode}): ${response.body}");
       }
+      if (response.body.isEmpty) {
+        return character;
+      }
+      final dynamic decoded = jsonDecode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        if (decoded.containsKey('success') && decoded.containsKey('id')) {
+          return character.copyWith(
+            id: decoded['id'].toString(),
+            name: character.name,
+            imagePath: character.imagePath,
+            stats: character.stats,
+          );
+        }
+        return CharacterModel.fromMap(decoded);
+      }
+      if (decoded is int || decoded is String) {
+        return character.copyWith(
+          id: decoded.toString(),
+          name: character.name,
+          imagePath: character.imagePath,
+          stats: character.stats,
+        );
+      }
+      return character;
     } catch (e) {
       debugPrint("❌ Erreur saveCharacter: $e");
       rethrow;

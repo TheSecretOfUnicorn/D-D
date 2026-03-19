@@ -14,6 +14,7 @@ class MapDataModel {
   final Map<String, TileType> gridData;
   final Map<String, int> tileRotations; // Clé "x,y" -> Rotation (0-5)
   final Map<String, WorldObject> objects;
+  final Map<String, Point<int>> tokenPositions;
   final Map<String, String> customAssets; 
 
   // Paramètres de jeu
@@ -27,6 +28,7 @@ class MapDataModel {
     required this.gridData,
     this.tileRotations = const {},
     this.objects = const {},
+    this.tokenPositions = const {},
     this.customAssets = const {},
     this.visionRange = 8,
     this.movementRange = 6,
@@ -40,6 +42,10 @@ class MapDataModel {
       'name': name,
       'width': config.widthInCells,
       'height': config.heightInCells,
+      'tokens': tokenPositions.map((key, value) => MapEntry(key, {
+        'x': value.x,
+        'y': value.y,
+      })),
       
       'json_data': {
         'config': {
@@ -140,6 +146,19 @@ class MapDataModel {
       }
     }
 
+    final Map<String, Point<int>> tokens = {};
+    if (json['tokens'] is Map) {
+      (json['tokens'] as Map).forEach((key, value) {
+        if (value is Map) {
+          final x = value['x'];
+          final y = value['y'];
+          if (x is int && y is int) {
+            tokens[key.toString()] = Point<int>(x, y);
+          }
+        }
+      });
+    }
+
     return MapDataModel(
       id: json['id']?.toString(),
       name: json['name'] ?? "Carte sans nom",
@@ -147,6 +166,7 @@ class MapDataModel {
       gridData: grid,
       tileRotations: rotations,
       objects: objs,
+      tokenPositions: tokens,
       customAssets: loadedAssets,
       visionRange: settingsData['visionRange'] ?? 8,
       movementRange: settingsData['movementRange'] ?? 6,

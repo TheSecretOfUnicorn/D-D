@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../data/repositories/auth_repository.dart';
-import '../../../campaign_manager/presentation/pages/campaign_dashboard_page.dart'; // Ta page d'accueil
+import '../../../app_shell/presentation/pages/app_shell_page.dart';
 
 class AuthPage extends StatefulWidget {
   const AuthPage({super.key});
@@ -31,7 +31,7 @@ class _AuthPageState extends State<AuthPage> {
       if (success) {
         Navigator.pushReplacement(
           context, 
-          MaterialPageRoute(builder: (_) => const CampaignDashboardPage())
+          MaterialPageRoute(builder: (_) => const AppShellPage())
         );
       } else {
         _showError("Code invalide ou utilisateur inconnu");

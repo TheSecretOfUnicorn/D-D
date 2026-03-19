@@ -52,12 +52,15 @@ class CharacterModel {
   // --- SERIALIZATION JSON ---
 
   Map<String, dynamic> toMap() {
-    return {
-      'id': id,
+    final map = <String, dynamic>{
+      'id': id.startsWith('local_') ? null : id,
       'name': name,
-      'imagePath': imagePath,
       'stats': stats,
     };
+    if (imagePath != null && imagePath!.isNotEmpty) {
+      map['imagePath'] = imagePath;
+    }
+    return map;
   }
 
   Map<String, dynamic> toJson() => toMap();
@@ -73,5 +76,17 @@ class CharacterModel {
 
   factory CharacterModel.fromJson(Map<String, dynamic> json) => CharacterModel.fromMap(json);
 
-  copyWith({required String name, required Map<String, dynamic> stats}) {}
+  CharacterModel copyWith({
+    String? id,
+    required String name,
+    String? imagePath,
+    required Map<String, dynamic> stats,
+  }) {
+    return CharacterModel(
+      id: id ?? this.id,
+      name: name,
+      imagePath: imagePath ?? this.imagePath,
+      stats: Map<String, dynamic>.from(stats),
+    );
+  }
 }

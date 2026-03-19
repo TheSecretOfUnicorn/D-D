@@ -155,23 +155,31 @@ class _EditorPaletteState extends State<EditorPalette> with SingleTickerProvider
             widget.onToolChanged(EditorTool.brush);
             widget.onTileTypeChanged(opt.type);
           },
-          child: Container(
-            width: 80,
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: isSelected ? Colors.blueAccent.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
-              border: Border.all(color: isSelected ? Colors.blueAccent : Colors.transparent, width: 2),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Column(
-              children: [
-                Container(
-                  width: 20, height: 20,
-                  decoration: BoxDecoration(color: opt.color, shape: BoxShape.circle, border: Border.all(color: Colors.white30)),
+          child: Semantics(
+            button: true,
+            label: "Terrain ${opt.label}",
+            selected: isSelected,
+            child: Tooltip(
+              message: opt.label,
+              child: Container(
+                width: 80,
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: isSelected ? Colors.blueAccent.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
+                  border: Border.all(color: isSelected ? Colors.blueAccent : Colors.transparent, width: 2),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                const SizedBox(height: 4),
-                Text(opt.label, style: TextStyle(color: isSelected ? Colors.white : Colors.white70, fontSize: 10), textAlign: TextAlign.center),
-              ],
+                child: Column(
+                  children: [
+                    Container(
+                      width: 20, height: 20,
+                      decoration: BoxDecoration(color: opt.color, shape: BoxShape.circle, border: Border.all(color: Colors.white30)),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(opt.label, style: TextStyle(color: isSelected ? Colors.white : Colors.white70, fontSize: 10), textAlign: TextAlign.center),
+                  ],
+                ),
+              ),
             ),
           ),
         );
@@ -207,22 +215,30 @@ class _ObjectOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isSelected = (type == selectedType) && (selectedTool == EditorTool.object);
-    return GestureDetector(
-      onTap: () => onTap(type),
-      child: Container(
-        width: 60,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.purple.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
-          border: Border.all(color: isSelected ? Colors.purpleAccent : Colors.transparent, width: 2),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: isSelected ? Colors.white : Colors.white70, size: 20),
-            const SizedBox(height: 4),
-            Text(label, style: TextStyle(color: isSelected ? Colors.white : Colors.white70, fontSize: 9)),
-          ],
+    return Semantics(
+      button: true,
+      label: label,
+      selected: isSelected,
+      child: Tooltip(
+        message: label,
+        child: GestureDetector(
+          onTap: () => onTap(type),
+          child: Container(
+            width: 60,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: isSelected ? Colors.purple.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05),
+              border: Border.all(color: isSelected ? Colors.purpleAccent : Colors.transparent, width: 2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              children: [
+                Icon(icon, color: isSelected ? Colors.white : Colors.white70, size: 20),
+                const SizedBox(height: 4),
+                Text(label, style: TextStyle(color: isSelected ? Colors.white : Colors.white70, fontSize: 9)),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -244,6 +260,7 @@ class _ToolIconButton extends StatelessWidget {
     return Column(
       children: [
         IconButton(
+          tooltip: label,
           icon: Icon(icon),
           color: isSelected ? Colors.blueAccent : Colors.grey,
           style: IconButton.styleFrom(
